@@ -1,0 +1,398 @@
+type: grid
+columns: 1
+square: false
+cards:
+
+  # --- Controls ---
+  - type: horizontal-stack
+    cards:
+      - type: button
+        entity: button.irrigation_planner_calculate
+        name: Calculate
+        icon: mdi:calculator
+        tap_action:
+          action: toggle
+        show_state: false
+      - type: button
+        entity: button.irrigation_planner_refresh_weather
+        name: Refresh Weather
+        icon: mdi:cloud-refresh
+        tap_action:
+          action: toggle
+        show_state: false
+      - type: button
+        entity: button.irrigation_planner_reset_buckets
+        name: Reset Buckets
+        icon: mdi:restart
+        tap_action:
+          action: toggle
+        show_state: false
+      - type: button
+        name: Mark Watered
+        icon: mdi:watering-can
+        tap_action:
+          action: call-service
+          service: irrigation_planner.mark_watered
+        show_state: false
+
+  # --- Weather Status ---
+  - type: entities
+    title: Weather Data
+    entities:
+      - entity: sensor.irrigation_planner_weather
+        name: Last Update
+      - type: attribute
+        entity: sensor.irrigation_planner_weather
+        attribute: current_temp_c
+        name: Temperature
+        suffix: " °C"
+        icon: mdi:thermometer
+      - type: attribute
+        entity: sensor.irrigation_planner_weather
+        attribute: current_humidity
+        name: Humidity
+        suffix: " %"
+        icon: mdi:water-percent
+      - type: attribute
+        entity: sensor.irrigation_planner_weather
+        attribute: history_entries
+        name: History Data Points
+        icon: mdi:database
+      - type: attribute
+        entity: sensor.irrigation_planner_weather
+        attribute: forecast_entries
+        name: Forecast Data Points
+        icon: mdi:crystal-ball
+      - type: attribute
+        entity: sensor.irrigation_planner_weather
+        attribute: rain_actual_2d_mm
+        name: Actual Rain (2 days)
+        suffix: " mm"
+        icon: mdi:weather-rainy
+      - type: attribute
+        entity: sensor.irrigation_planner_weather
+        attribute: rain_forecast_2d_mm
+        name: Forecast Rain (2 days)
+        suffix: " mm"
+        icon: mdi:weather-pouring
+      - type: attribute
+        entity: sensor.irrigation_planner_weather
+        attribute: last_watered
+        name: Last Watered
+        icon: mdi:sprinkler
+      - type: attribute
+        entity: sensor.irrigation_planner_weather
+        attribute: hours_since_watering
+        name: Hours Since Watering
+        suffix: " hrs"
+        icon: mdi:clock-outline
+
+  # --- Zone 1 ---
+  - type: gauge
+    entity: sensor.irrigation_zone_1_bucket
+    name: "Zone 1 Moisture"
+    min: 0
+    max: 100
+    severity:
+      green: 75
+      yellow: 25
+      red: 0
+    needle: true
+  - type: entities
+    title: "Zone 1 (Partial Sun)"
+    entities:
+      - entity: sensor.irrigation_zone_1_duration
+        name: Watering Duration
+      - entity: sensor.irrigation_zone_1_bucket
+        name: Bucket Level
+      - type: attribute
+        entity: sensor.irrigation_zone_1_bucket
+        attribute: net_change_percent
+        name: Net Change
+        suffix: "%"
+      - type: attribute
+        entity: sensor.irrigation_zone_1_bucket
+        attribute: factor_et
+        name: ET Impact
+        suffix: "%"
+        icon: mdi:thermometer
+      - type: attribute
+        entity: sensor.irrigation_zone_1_bucket
+        attribute: factor_rain_actual
+        name: Actual Rain
+        suffix: "%"
+        icon: mdi:weather-rainy
+      - type: attribute
+        entity: sensor.irrigation_zone_1_bucket
+        attribute: factor_rain_forecast
+        name: Forecast Rain
+        suffix: "%"
+        icon: mdi:weather-pouring
+      - type: attribute
+        entity: sensor.irrigation_zone_1_bucket
+        attribute: factor_drainage
+        name: Drainage
+        suffix: "%"
+        icon: mdi:water-outline
+      - type: attribute
+        entity: sensor.irrigation_zone_1_bucket
+        attribute: sun_exposure
+        name: Sun Exposure
+        icon: mdi:white-balance-sunny
+      - type: attribute
+        entity: sensor.irrigation_zone_1_bucket
+        attribute: soil_type
+        name: Soil Type
+        icon: mdi:shovel
+  - type: markdown
+    title: Zone 1 Calculation
+    content: >
+      {{ state_attr('sensor.irrigation_zone_1_breakdown', 'explanation') }}
+
+  # --- Zone 2 ---
+  - type: gauge
+    entity: sensor.irrigation_zone_2_bucket
+    name: "Zone 2 Moisture"
+    min: 0
+    max: 100
+    severity:
+      green: 75
+      yellow: 25
+      red: 0
+    needle: true
+  - type: entities
+    title: "Zone 2 (Partial Sun)"
+    entities:
+      - entity: sensor.irrigation_zone_2_duration
+        name: Watering Duration
+      - entity: sensor.irrigation_zone_2_bucket
+        name: Bucket Level
+      - type: attribute
+        entity: sensor.irrigation_zone_2_bucket
+        attribute: net_change_percent
+        name: Net Change
+        suffix: "%"
+      - type: attribute
+        entity: sensor.irrigation_zone_2_bucket
+        attribute: factor_et
+        name: ET Impact
+        suffix: "%"
+        icon: mdi:thermometer
+      - type: attribute
+        entity: sensor.irrigation_zone_2_bucket
+        attribute: factor_rain_actual
+        name: Actual Rain
+        suffix: "%"
+        icon: mdi:weather-rainy
+      - type: attribute
+        entity: sensor.irrigation_zone_2_bucket
+        attribute: factor_rain_forecast
+        name: Forecast Rain
+        suffix: "%"
+        icon: mdi:weather-pouring
+      - type: attribute
+        entity: sensor.irrigation_zone_2_bucket
+        attribute: factor_drainage
+        name: Drainage
+        suffix: "%"
+        icon: mdi:water-outline
+      - type: attribute
+        entity: sensor.irrigation_zone_2_bucket
+        attribute: sun_exposure
+        name: Sun Exposure
+        icon: mdi:white-balance-sunny
+      - type: attribute
+        entity: sensor.irrigation_zone_2_bucket
+        attribute: soil_type
+        name: Soil Type
+        icon: mdi:shovel
+  - type: markdown
+    title: Zone 2 Calculation
+    content: >
+      {{ state_attr('sensor.irrigation_zone_2_breakdown', 'explanation') }}
+
+  # --- Zone 3 ---
+  - type: gauge
+    entity: sensor.irrigation_zone_3_bucket
+    name: "Zone 3 Moisture"
+    min: 0
+    max: 100
+    severity:
+      green: 75
+      yellow: 25
+      red: 0
+    needle: true
+  - type: entities
+    title: "Zone 3 (Partial Sun)"
+    entities:
+      - entity: sensor.irrigation_zone_3_duration
+        name: Watering Duration
+      - entity: sensor.irrigation_zone_3_bucket
+        name: Bucket Level
+      - type: attribute
+        entity: sensor.irrigation_zone_3_bucket
+        attribute: net_change_percent
+        name: Net Change
+        suffix: "%"
+      - type: attribute
+        entity: sensor.irrigation_zone_3_bucket
+        attribute: factor_et
+        name: ET Impact
+        suffix: "%"
+        icon: mdi:thermometer
+      - type: attribute
+        entity: sensor.irrigation_zone_3_bucket
+        attribute: factor_rain_actual
+        name: Actual Rain
+        suffix: "%"
+        icon: mdi:weather-rainy
+      - type: attribute
+        entity: sensor.irrigation_zone_3_bucket
+        attribute: factor_rain_forecast
+        name: Forecast Rain
+        suffix: "%"
+        icon: mdi:weather-pouring
+      - type: attribute
+        entity: sensor.irrigation_zone_3_bucket
+        attribute: factor_drainage
+        name: Drainage
+        suffix: "%"
+        icon: mdi:water-outline
+      - type: attribute
+        entity: sensor.irrigation_zone_3_bucket
+        attribute: sun_exposure
+        name: Sun Exposure
+        icon: mdi:white-balance-sunny
+      - type: attribute
+        entity: sensor.irrigation_zone_3_bucket
+        attribute: soil_type
+        name: Soil Type
+        icon: mdi:shovel
+  - type: markdown
+    title: Zone 3 Calculation
+    content: >
+      {{ state_attr('sensor.irrigation_zone_3_breakdown', 'explanation') }}
+
+  # --- Zone 4 ---
+  - type: gauge
+    entity: sensor.irrigation_zone_4_bucket
+    name: "Zone 4 Moisture"
+    min: 0
+    max: 100
+    severity:
+      green: 75
+      yellow: 25
+      red: 0
+    needle: true
+  - type: entities
+    title: "Zone 4 (Full Sun)"
+    entities:
+      - entity: sensor.irrigation_zone_4_duration
+        name: Watering Duration
+      - entity: sensor.irrigation_zone_4_bucket
+        name: Bucket Level
+      - type: attribute
+        entity: sensor.irrigation_zone_4_bucket
+        attribute: net_change_percent
+        name: Net Change
+        suffix: "%"
+      - type: attribute
+        entity: sensor.irrigation_zone_4_bucket
+        attribute: factor_et
+        name: ET Impact
+        suffix: "%"
+        icon: mdi:thermometer
+      - type: attribute
+        entity: sensor.irrigation_zone_4_bucket
+        attribute: factor_rain_actual
+        name: Actual Rain
+        suffix: "%"
+        icon: mdi:weather-rainy
+      - type: attribute
+        entity: sensor.irrigation_zone_4_bucket
+        attribute: factor_rain_forecast
+        name: Forecast Rain
+        suffix: "%"
+        icon: mdi:weather-pouring
+      - type: attribute
+        entity: sensor.irrigation_zone_4_bucket
+        attribute: factor_drainage
+        name: Drainage
+        suffix: "%"
+        icon: mdi:water-outline
+      - type: attribute
+        entity: sensor.irrigation_zone_4_bucket
+        attribute: sun_exposure
+        name: Sun Exposure
+        icon: mdi:white-balance-sunny
+      - type: attribute
+        entity: sensor.irrigation_zone_4_bucket
+        attribute: soil_type
+        name: Soil Type
+        icon: mdi:shovel
+  - type: markdown
+    title: Zone 4 Calculation
+    content: >
+      {{ state_attr('sensor.irrigation_zone_4_breakdown', 'explanation') }}
+
+  # --- Zone 5 ---
+  - type: gauge
+    entity: sensor.irrigation_zone_5_bucket
+    name: "Zone 5 Moisture"
+    min: 0
+    max: 100
+    severity:
+      green: 75
+      yellow: 25
+      red: 0
+    needle: true
+  - type: entities
+    title: "Zone 5 (Full Sun)"
+    entities:
+      - entity: sensor.irrigation_zone_5_duration
+        name: Watering Duration
+      - entity: sensor.irrigation_zone_5_bucket
+        name: Bucket Level
+      - type: attribute
+        entity: sensor.irrigation_zone_5_bucket
+        attribute: net_change_percent
+        name: Net Change
+        suffix: "%"
+      - type: attribute
+        entity: sensor.irrigation_zone_5_bucket
+        attribute: factor_et
+        name: ET Impact
+        suffix: "%"
+        icon: mdi:thermometer
+      - type: attribute
+        entity: sensor.irrigation_zone_5_bucket
+        attribute: factor_rain_actual
+        name: Actual Rain
+        suffix: "%"
+        icon: mdi:weather-rainy
+      - type: attribute
+        entity: sensor.irrigation_zone_5_bucket
+        attribute: factor_rain_forecast
+        name: Forecast Rain
+        suffix: "%"
+        icon: mdi:weather-pouring
+      - type: attribute
+        entity: sensor.irrigation_zone_5_bucket
+        attribute: factor_drainage
+        name: Drainage
+        suffix: "%"
+        icon: mdi:water-outline
+      - type: attribute
+        entity: sensor.irrigation_zone_5_bucket
+        attribute: sun_exposure
+        name: Sun Exposure
+        icon: mdi:white-balance-sunny
+      - type: attribute
+        entity: sensor.irrigation_zone_5_bucket
+        attribute: soil_type
+        name: Soil Type
+        icon: mdi:shovel
+  - type: markdown
+    title: Zone 5 Calculation
+    content: >
+      {{ state_attr('sensor.irrigation_zone_5_breakdown', 'explanation') }}
