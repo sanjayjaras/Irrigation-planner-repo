@@ -1,0 +1,88 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Weather Setup",
+        "description": "Connect to OpenWeatherMap for weather data.",
+        "data": {
+          "owm_api_key": "OpenWeatherMap API Key",
+          "latitude": "Latitude",
+          "longitude": "Longitude"
+        }
+      },
+      "settings": {
+        "title": "General Settings",
+        "description": "Configure calculation schedule and data retention.",
+        "data": {
+          "calc_time": "Daily Calculation Time (HH:MM)",
+          "update_interval_minutes": "Weather Update Interval (minutes)",
+          "data_retention_days": "Weather Data Retention (days)"
+        }
+      },
+      "zones": {
+        "title": "Add Zone",
+        "description": "Configure irrigation zone. {zone_count} added so far.",
+        "data": {
+          "name": "Zone Name",
+          "area_sqft": "Area (sq ft)",
+          "sun_exposure": "Sun Exposure",
+          "soil_type": "Soil Type",
+          "plant_type": "Plant Type",
+          "sprinkler_rate_in_per_hr": "Sprinkler Rate (inches/hour)",
+          "rainbird_zone": "Rainbird Zone Number",
+          "add_another": "Add Another Zone?"
+        }
+      }
+    },
+    "error": {
+      "invalid_api_key": "Invalid OpenWeatherMap API key. Please check and try again."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Irrigation Planner Settings",
+        "data": {
+          "menu": "What would you like to configure?"
+        }
+      },
+      "general": {
+        "title": "General Settings",
+        "data": {
+          "calc_time": "Daily Calculation Time (HH:MM)",
+          "update_interval_minutes": "Weather Update Interval (minutes)",
+          "data_retention_days": "Weather Data Retention (days)"
+        }
+      },
+      "api": {
+        "title": "Weather API Settings",
+        "data": {
+          "owm_api_key": "OpenWeatherMap API Key",
+          "latitude": "Latitude",
+          "longitude": "Longitude"
+        }
+      },
+      "zone_menu": {
+        "title": "Zone Management",
+        "description": "{zone_count} zone(s) configured.",
+        "data": {
+          "action": "Select Action"
+        }
+      },
+      "zone_edit": {
+        "title": "Zone Configuration",
+        "data": {
+          "name": "Zone Name",
+          "area_sqft": "Area (sq ft)",
+          "sun_exposure": "Sun Exposure",
+          "soil_type": "Soil Type",
+          "plant_type": "Plant Type",
+          "sprinkler_rate_in_per_hr": "Sprinkler Rate (inches/hour)",
+          "rainbird_zone": "Rainbird Zone Number",
+          "duration_multiplier": "Duration Multiplier (0.1-5.0)",
+          "max_duration_minutes": "Max Duration (minutes)"
+        }
+      }
+    }
+  }
+}

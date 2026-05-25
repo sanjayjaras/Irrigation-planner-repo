@@ -1,0 +1,193 @@
+# Irrigation Planner Dashboard
+# Copy this to your HA dashboard or import as a new view
+#
+# Adjust entity names based on your zone names.
+# Default entities:
+#   sensor.irrigation_zone_1_duration
+#   sensor.irrigation_zone_1_bucket
+#   sensor.irrigation_zone_1_breakdown
+#   sensor.irrigation_planner_weather
+#   button.irrigation_planner_calculate
+#   button.irrigation_planner_refresh_weather
+#   button.irrigation_planner_reset_buckets
+
+title: Irrigation Planner
+path: irrigation-planner
+icon: mdi:sprinkler-variant
+type: sections
+max_columns: 2
+sections:
+
+  # --- Controls Section ---
+  - type: grid
+    title: Controls
+    cards:
+      - type: horizontal-stack
+        cards:
+          - type: button
+            entity: button.irrigation_planner_calculate
+            name: Calculate Now
+            icon: mdi:calculator
+            tap_action:
+              action: toggle
+            show_state: false
+
+          - type: button
+            entity: button.irrigation_planner_refresh_weather
+            name: Refresh Weather
+            icon: mdi:cloud-refresh
+            tap_action:
+              action: toggle
+            show_state: false
+
+          - type: button
+            entity: button.irrigation_planner_reset_buckets
+            name: Reset Buckets
+            icon: mdi:restart
+            tap_action:
+              action: toggle
+            show_state: false
+
+  # --- Weather Status ---
+  - type: grid
+    title: Weather Status
+    cards:
+      - type: entities
+        title: Weather Data
+        entities:
+          - entity: sensor.irrigation_planner_weather
+            name: Last Update
+          - type: attribute
+            entity: sensor.irrigation_planner_weather
+            attribute: history_entries
+            name: History Data Points
+            icon: mdi:database
+          - type: attribute
+            entity: sensor.irrigation_planner_weather
+            attribute: forecast_entries
+            name: Forecast Data Points
+            icon: mdi:crystal-ball
+          - type: attribute
+            entity: sensor.irrigation_planner_weather
+            attribute: rain_actual_2d_mm
+            name: Actual Rain (2 days)
+            suffix: mm
+            icon: mdi:weather-rainy
+          - type: attribute
+            entity: sensor.irrigation_planner_weather
+            attribute: rain_forecast_2d_mm
+            name: Forecast Rain (2 days)
+            suffix: mm
+            icon: mdi:weather-pouring
+
+  # --- Zone 1 ---
+  - type: grid
+    title: Zone 1
+    cards:
+      - type: gauge
+        entity: sensor.irrigation_zone_1_bucket
+        name: Moisture Level
+        min: 0
+        max: 100
+        severity:
+          green: 75
+          yellow: 25
+          red: 0
+        needle: true
+
+      - type: entities
+        title: Zone 1 Details
+        entities:
+          - entity: sensor.irrigation_zone_1_duration
+            name: Watering Duration
+          - entity: sensor.irrigation_zone_1_bucket
+            name: Bucket Level
+          - type: attribute
+            entity: sensor.irrigation_zone_1_bucket
+            attribute: net_change_percent
+            name: Net Change
+            suffix: "%"
+          - type: attribute
+            entity: sensor.irrigation_zone_1_bucket
+            attribute: factor_et
+            name: ET Impact
+            suffix: "%"
+            icon: mdi:thermometer
+          - type: attribute
+            entity: sensor.irrigation_zone_1_bucket
+            attribute: factor_rain_actual
+            name: Actual Rain Impact
+            suffix: "%"
+            icon: mdi:weather-rainy
+          - type: attribute
+            entity: sensor.irrigation_zone_1_bucket
+            attribute: factor_rain_forecast
+            name: Forecast Rain Impact
+            suffix: "%"
+            icon: mdi:weather-pouring
+          - type: attribute
+            entity: sensor.irrigation_zone_1_bucket
+            attribute: factor_drainage
+            name: Drainage Impact
+            suffix: "%"
+            icon: mdi:water-outline
+          - type: attribute
+            entity: sensor.irrigation_zone_1_bucket
+            attribute: sun_exposure
+            name: Sun Exposure
+            icon: mdi:white-balance-sunny
+          - type: attribute
+            entity: sensor.irrigation_zone_1_bucket
+            attribute: soil_type
+            name: Soil Type
+            icon: mdi:shovel
+
+      - type: markdown
+        title: Calculation Details
+        content: |
+          {{ state_attr('sensor.irrigation_zone_1_breakdown', 'explanation') }}
+
+  # --- Zone 2 (duplicate and adjust for each zone) ---
+  - type: grid
+    title: Zone 2
+    cards:
+      - type: gauge
+        entity: sensor.irrigation_zone_2_bucket
+        name: Moisture Level
+        min: 0
+        max: 100
+        severity:
+          green: 75
+          yellow: 25
+          red: 0
+        needle: true
+
+      - type: entities
+        title: Zone 2 Details
+        entities:
+          - entity: sensor.irrigation_zone_2_duration
+            name: Watering Duration
+          - entity: sensor.irrigation_zone_2_bucket
+            name: Bucket Level
+          - type: attribute
+            entity: sensor.irrigation_zone_2_bucket
+            attribute: net_change_percent
+            name: Net Change
+            suffix: "%"
+          - type: attribute
+            entity: sensor.irrigation_zone_2_bucket
+            attribute: factor_et
+            name: ET Impact
+            suffix: "%"
+            icon: mdi:thermometer
+          - type: attribute
+            entity: sensor.irrigation_zone_2_bucket
+            attribute: factor_rain_actual
+            name: Actual Rain Impact
+            suffix: "%"
+            icon: mdi:weather-rainy
+
+      - type: markdown
+        title: Calculation Details
+        content: |
+          {{ state_attr('sensor.irrigation_zone_2_breakdown', 'explanation') }}

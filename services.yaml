@@ -1,0 +1,27 @@
+calculate:
+  name: Calculate All Zones
+  description: Run irrigation calculation for all zones using collected weather data.
+
+refresh_weather:
+  name: Refresh Weather Data
+  description: Fetch latest weather data and forecast from OpenWeatherMap.
+
+mark_watered:
+  name: Mark as Watered
+  description: Record that watering just happened. This is auto-detected when Rainbird switches turn off.
+
+reset_bucket:
+  name: Reset Buckets
+  description: Reset all zone buckets to a specified percentage.
+  fields:
+    value:
+      name: Bucket Value
+      description: The percentage to reset buckets to (0-100).
+      required: false
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 100
+          step: 5
+          unit_of_measurement: "%"
