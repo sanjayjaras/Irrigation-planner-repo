@@ -23,11 +23,16 @@ from .const import (
     CONF_LATITUDE,
     CONF_LONGITUDE,
     CONF_OWM_API_KEY,
+    CONF_RAINBIRD_DEBOUNCE_MINUTES,
+    CONF_MIN_WATERING_INTERVAL_HOURS,
+    CONF_AUTO_CALCULATE_ON_WEATHER_UPDATE,
     CONF_UPDATE_INTERVAL_MINUTES,
     CONF_ZONES,
-    CONF_ZONE_NAME,
     DEFAULT_CALC_TIME,
     DEFAULT_DATA_RETENTION_DAYS,
+    DEFAULT_MIN_WATERING_INTERVAL_HOURS,
+    DEFAULT_RAINBIRD_DEBOUNCE_MINUTES,
+    DEFAULT_AUTO_CALCULATE_ON_WEATHER_UPDATE,
     DEFAULT_UPDATE_INTERVAL_MINUTES,
 )
 from .store import IrrigationPlannerStore
@@ -72,9 +77,7 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
         self._unsub_rainbird_listeners = []
         self._zone_debounce_timers: dict[str, Any] = {}  # zone_id -> unsub callback
 
-        # Debounce delay in seconds: wait this long after last off event
-        # before marking zone as watered (allows for repeat cycles)
-        self._debounce_delay = 600  # 10 minutes
+        self._calc_min_gap_seconds = 300
 
     async def async_setup(self) -> None:
         """Set up the coordinator: load data, schedule tasks."""
@@ -161,10 +164,22 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
     async def _async_weather_update_callback(self, now=None) -> None:
         """Scheduled weather update, then recalculate."""
         await self.async_refresh_weather()
+        if not self._config.get(
+            CONF_AUTO_CALCULATE_ON_WEATHER_UPDATE,
+            DEFAULT_AUTO_CALCULATE_ON_WEATHER_UPDATE,
+        ):
+            _LOGGER.debug("Auto-calculate on weather update disabled")
+            return
+        if self._calculation_ran_recently(self._calc_min_gap_seconds):
+            _LOGGER.debug("Skipping weather-triggered calculate; recently calculated")
+            return
         await self.async_calculate()
 
     async def _async_calc_callback(self, now=None) -> None:
         """Scheduled daily calculation."""
+        if self._calculation_ran_recently(self._calc_min_gap_seconds):
+            _LOGGER.debug("Skipping scheduled daily calculation; recently calculated")
+            return
         _LOGGER.info("Running scheduled daily calculation")
         await self.async_calculate()
 
@@ -209,6 +224,10 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
         """Run irrigation calculation for all zones."""
         _LOGGER.info("Running irrigation calculation for all zones")
         zones = self._config.get(CONF_ZONES, [])
+        min_interval_hours = self._config.get(
+            CONF_MIN_WATERING_INTERVAL_HOURS,
+            DEFAULT_MIN_WATERING_INTERVAL_HOURS,
+        )
 
         weather_history = self.store.get_weather_history(days=2)
         weather_forecast = self.store.get_forecast(days=2)
@@ -228,6 +247,24 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
                 weather_forecast=weather_forecast,
             )
 
+            # Safety cooldown: do not water again too soon after last watering
+            last_watered = self.store.data.get("last_watered")
+            if min_interval_hours > 0 and last_watered:
+                try:
+                    last_dt = datetime.fromisoformat(last_watered)
+                    hours_since = (datetime.now() - last_dt).total_seconds() / 3600
+                    if hours_since < min_interval_hours:
+                        result["duration_minutes"] = 0.0
+                        result["cooldown_active"] = True
+                        result["cooldown_remaining_hours"] = round(min_interval_hours - hours_since, 1)
+                        explanation = result.get("explanation", "")
+                        result["explanation"] = (
+                            explanation
+                            + f"\n\nCooldown active: next watering allowed in {result['cooldown_remaining_hours']}h"
+                        ).strip()
+                except (ValueError, TypeError):
+                    pass
+
             await self.store.async_update_zone(zone_id, result)
 
         await self._async_update_data_from_store()
@@ -240,6 +277,12 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
         for idx in range(len(zones)):
             zone_id = f"zone_{idx + 1}"
             await self.store.async_reset_zone_bucket(zone_id, 100.0)
+            await self.store.async_update_zone(zone_id, {
+                "bucket_percent": 100.0,
+                "duration_minutes": 0.0,
+                "cooldown_active": False,
+                "cooldown_remaining_hours": None,
+            })
         await self._async_update_data_from_store()
         _LOGGER.info("Watering recorded, all buckets set to 100%%")
 
@@ -281,14 +324,26 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
                 )
                 self._zone_debounce_timers.pop(_zone_id, None)
                 await self.store.async_reset_zone_bucket(_zone_id, 100.0)
+                await self.store.async_update_zone(_zone_id, {
+                    "bucket_percent": 100.0,
+                    "duration_minutes": 0.0,
+                    "cooldown_active": False,
+                    "cooldown_remaining_hours": None,
+                })
                 await self.store.async_record_watering()
                 await self._async_update_data_from_store()
 
-            unsub = async_call_later(self.hass, self._debounce_delay, _mark_zone_done)
+            debounce_seconds = int(
+                self._config.get(
+                    CONF_RAINBIRD_DEBOUNCE_MINUTES,
+                    DEFAULT_RAINBIRD_DEBOUNCE_MINUTES,
+                ) * 60
+            )
+            unsub = async_call_later(self.hass, debounce_seconds, _mark_zone_done)
             self._zone_debounce_timers[zone_id] = unsub
             _LOGGER.info(
                 "Rainbird %s turned off, debounce %ds for %s",
-                entity_id, self._debounce_delay, zone_id,
+                entity_id, debounce_seconds, zone_id,
             )
 
         elif old_state.state == "off" and new_state.state == "on":
@@ -300,6 +355,17 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
                     "Rainbird %s turned on again, cancelled debounce for %s",
                     entity_id, zone_id,
                 )
+
+    def _calculation_ran_recently(self, min_gap_seconds: int) -> bool:
+        """Return True if a calculation ran recently enough to skip rerun."""
+        last_calculation = self.store.data.get("last_calculation")
+        if not last_calculation:
+            return False
+        try:
+            last_dt = datetime.fromisoformat(last_calculation)
+        except (ValueError, TypeError):
+            return False
+        return (datetime.now() - last_dt).total_seconds() < min_gap_seconds
 
     # --- Internal ---
 
@@ -337,6 +403,27 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
             "zones": zones_data,
             "last_weather_update": self.store.data.get("last_weather_update"),
             "last_calculation": self.store.data.get("last_calculation"),
+            "calc_time": self._config.get(CONF_CALC_TIME, DEFAULT_CALC_TIME),
+            "update_interval_minutes": self._config.get(
+                CONF_UPDATE_INTERVAL_MINUTES,
+                DEFAULT_UPDATE_INTERVAL_MINUTES,
+            ),
+            "data_retention_days": self._config.get(
+                CONF_DATA_RETENTION_DAYS,
+                DEFAULT_DATA_RETENTION_DAYS,
+            ),
+            "rainbird_debounce_minutes": self._config.get(
+                CONF_RAINBIRD_DEBOUNCE_MINUTES,
+                DEFAULT_RAINBIRD_DEBOUNCE_MINUTES,
+            ),
+            "min_watering_interval_hours": self._config.get(
+                CONF_MIN_WATERING_INTERVAL_HOURS,
+                DEFAULT_MIN_WATERING_INTERVAL_HOURS,
+            ),
+            "auto_calculate_on_weather_update": self._config.get(
+                CONF_AUTO_CALCULATE_ON_WEATHER_UPDATE,
+                DEFAULT_AUTO_CALCULATE_ON_WEATHER_UPDATE,
+            ),
             "history_entries": len(history),
             "forecast_entries": len(forecast),
             "rain_actual_2d_mm": round(self.store.get_accumulated_rain_actual(2), 2),

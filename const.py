@@ -1,7 +1,7 @@
 """Constants for Irrigation Planner."""
 
 DOMAIN = "irrigation_planner"
-PLATFORMS = ["sensor", "button"]
+PLATFORMS = ["sensor", "button", "number", "switch"]
 
 # Configuration keys
 CONF_OWM_API_KEY = "owm_api_key"
@@ -10,6 +10,9 @@ CONF_LONGITUDE = "longitude"
 CONF_CALC_TIME = "calc_time"
 CONF_DATA_RETENTION_DAYS = "data_retention_days"
 CONF_UPDATE_INTERVAL_MINUTES = "update_interval_minutes"
+CONF_RAINBIRD_DEBOUNCE_MINUTES = "rainbird_debounce_minutes"
+CONF_MIN_WATERING_INTERVAL_HOURS = "min_watering_interval_hours"
+CONF_AUTO_CALCULATE_ON_WEATHER_UPDATE = "auto_calculate_on_weather_update"
 
 # Zone configuration
 CONF_ZONES = "zones"
@@ -91,6 +94,9 @@ PLANT_WATER_MULTIPLIER = {
 DEFAULT_CALC_TIME = "05:00"
 DEFAULT_DATA_RETENTION_DAYS = 3
 DEFAULT_UPDATE_INTERVAL_MINUTES = 60
+DEFAULT_RAINBIRD_DEBOUNCE_MINUTES = 10
+DEFAULT_MIN_WATERING_INTERVAL_HOURS = 24
+DEFAULT_AUTO_CALCULATE_ON_WEATHER_UPDATE = True
 DEFAULT_AREA_SQFT = 500
 DEFAULT_SPRINKLER_RATE_IN_PER_HR = 1.0
 DEFAULT_DURATION_MULTIPLIER = 1.0
@@ -99,7 +105,7 @@ DEFAULT_MAX_DURATION_MINUTES = 30
 # Bucket
 BUCKET_MAX_PERCENT = 100.0
 BUCKET_MIN_PERCENT = 0.0
-BUCKET_IRRIGATION_THRESHOLD = 0.0  # irrigate when bucket goes below 0%
+BUCKET_IRRIGATION_THRESHOLD = 0.0  # irrigate when bucket is at/below 0%
 BUCKET_TARGET_REFILL = 100.0  # refill target: 100% = fully watered
 
 # Weather data keys

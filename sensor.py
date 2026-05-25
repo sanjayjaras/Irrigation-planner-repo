@@ -96,6 +96,8 @@ class ZoneDurationSensor(CoordinatorEntity, SensorEntity):
             "rain_actual_inches": zone_data.get("rain_actual_inches"),
             "rain_forecast_inches": zone_data.get("rain_forecast_inches"),
             "net_change_inches": zone_data.get("net_change_inches"),
+            "cooldown_active": zone_data.get("cooldown_active", False),
+            "cooldown_remaining_hours": zone_data.get("cooldown_remaining_hours"),
             "explanation": zone_data.get("explanation"),
         }
 
@@ -249,6 +251,12 @@ class WeatherStatusSensor(CoordinatorEntity, SensorEntity):
         if self.coordinator.data is None:
             return {}
         return {
+            "calc_time": self.coordinator.data.get("calc_time"),
+            "update_interval_minutes": self.coordinator.data.get("update_interval_minutes"),
+            "data_retention_days": self.coordinator.data.get("data_retention_days"),
+            "rainbird_debounce_minutes": self.coordinator.data.get("rainbird_debounce_minutes"),
+            "min_watering_interval_hours": self.coordinator.data.get("min_watering_interval_hours"),
+            "auto_calculate_on_weather_update": self.coordinator.data.get("auto_calculate_on_weather_update"),
             "current_temp_c": self.coordinator.data.get("current_temp_c"),
             "current_humidity": self.coordinator.data.get("current_humidity"),
             "history_entries": self.coordinator.data.get("history_entries", 0),

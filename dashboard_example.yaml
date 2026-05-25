@@ -59,6 +59,35 @@ sections:
             name: Last Update
           - type: attribute
             entity: sensor.irrigation_planner_weather
+            attribute: calc_time
+            name: Daily Calc Time
+            icon: mdi:clock-start
+          - type: attribute
+            entity: sensor.irrigation_planner_weather
+            attribute: update_interval_minutes
+            name: Weather Update Interval
+            suffix: min
+            icon: mdi:update
+          - type: attribute
+            entity: sensor.irrigation_planner_weather
+            attribute: data_retention_days
+            name: Data Retention
+            suffix: days
+            icon: mdi:database-clock
+          - type: attribute
+            entity: sensor.irrigation_planner_weather
+            attribute: rainbird_debounce_minutes
+            name: Rainbird Debounce
+            suffix: min
+            icon: mdi:timer-sand
+          - type: attribute
+            entity: sensor.irrigation_planner_weather
+            attribute: min_watering_interval_hours
+            name: Min Watering Interval
+            suffix: hrs
+            icon: mdi:av-timer
+          - type: attribute
+            entity: sensor.irrigation_planner_weather
             attribute: history_entries
             name: History Data Points
             icon: mdi:database
@@ -80,6 +109,19 @@ sections:
             suffix: mm
             icon: mdi:weather-pouring
 
+  - type: grid
+    title: Config Controls
+    cards:
+      - type: entities
+        title: Planner Config Controls
+        entities:
+          - entity: number.irrigation_planner_rainbird_debounce
+            name: Rainbird Debounce (Slider)
+          - entity: number.irrigation_planner_min_watering_interval
+            name: Min Watering Interval (Slider)
+          - entity: switch.irrigation_planner_auto_calculate_on_weather_update
+            name: Auto Calculate on Weather Update
+
   # --- Zone 1 ---
   - type: grid
     title: Zone 1
@@ -100,6 +142,15 @@ sections:
         entities:
           - entity: sensor.irrigation_zone_1_duration
             name: Watering Duration
+          - type: attribute
+            entity: sensor.irrigation_zone_1_duration
+            attribute: cooldown_active
+            name: Cooldown Active
+          - type: attribute
+            entity: sensor.irrigation_zone_1_duration
+            attribute: cooldown_remaining_hours
+            name: Cooldown Remaining
+            suffix: hrs
           - entity: sensor.irrigation_zone_1_bucket
             name: Bucket Level
           - type: attribute
@@ -167,6 +218,15 @@ sections:
         entities:
           - entity: sensor.irrigation_zone_2_duration
             name: Watering Duration
+          - type: attribute
+            entity: sensor.irrigation_zone_2_duration
+            attribute: cooldown_active
+            name: Cooldown Active
+          - type: attribute
+            entity: sensor.irrigation_zone_2_duration
+            attribute: cooldown_remaining_hours
+            name: Cooldown Remaining
+            suffix: hrs
           - entity: sensor.irrigation_zone_2_bucket
             name: Bucket Level
           - type: attribute

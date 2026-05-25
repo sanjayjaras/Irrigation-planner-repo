@@ -16,7 +16,10 @@
         "data": {
           "calc_time": "Daily Calculation Time (HH:MM)",
           "update_interval_minutes": "Weather Update Interval (minutes)",
-          "data_retention_days": "Weather Data Retention (days)"
+          "data_retention_days": "Weather Data Retention (days)",
+          "rainbird_debounce_minutes": "Rainbird Zone Debounce (minutes)",
+          "min_watering_interval_hours": "Minimum Interval Between Watering (hours)",
+          "auto_calculate_on_weather_update": "Auto Calculate on Weather Update"
         }
       },
       "zones": {
@@ -51,7 +54,10 @@
         "data": {
           "calc_time": "Daily Calculation Time (HH:MM)",
           "update_interval_minutes": "Weather Update Interval (minutes)",
-          "data_retention_days": "Weather Data Retention (days)"
+          "data_retention_days": "Weather Data Retention (days)",
+          "rainbird_debounce_minutes": "Rainbird Zone Debounce (minutes)",
+          "min_watering_interval_hours": "Minimum Interval Between Watering (hours)",
+          "auto_calculate_on_weather_update": "Auto Calculate on Weather Update"
         }
       },
       "api": {

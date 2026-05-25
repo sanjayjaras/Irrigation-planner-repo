@@ -8,7 +8,7 @@ refresh_weather:
 
 mark_watered:
   name: Mark as Watered
-  description: Record that watering just happened. This is auto-detected when Rainbird switches turn off.
+  description: Record watering now and set all zone buckets to 100%. This is auto-detected per zone when Rainbird switches finish.
 
 reset_bucket:
   name: Reset Buckets

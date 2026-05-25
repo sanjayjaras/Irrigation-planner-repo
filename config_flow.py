@@ -19,6 +19,9 @@ from .const import (
     CONF_CALC_TIME,
     CONF_DATA_RETENTION_DAYS,
     CONF_UPDATE_INTERVAL_MINUTES,
+    CONF_RAINBIRD_DEBOUNCE_MINUTES,
+    CONF_MIN_WATERING_INTERVAL_HOURS,
+    CONF_AUTO_CALCULATE_ON_WEATHER_UPDATE,
     CONF_ZONES,
     CONF_ZONE_NAME,
     CONF_ZONE_AREA_SQFT,
@@ -35,6 +38,9 @@ from .const import (
     DEFAULT_CALC_TIME,
     DEFAULT_DATA_RETENTION_DAYS,
     DEFAULT_UPDATE_INTERVAL_MINUTES,
+    DEFAULT_RAINBIRD_DEBOUNCE_MINUTES,
+    DEFAULT_MIN_WATERING_INTERVAL_HOURS,
+    DEFAULT_AUTO_CALCULATE_ON_WEATHER_UPDATE,
     DEFAULT_AREA_SQFT,
     DEFAULT_SPRINKLER_RATE_IN_PER_HR,
     DEFAULT_DURATION_MULTIPLIER,
@@ -112,6 +118,15 @@ class IrrigationPlannerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 CONF_DATA_RETENTION_DAYS: user_input.get(
                     CONF_DATA_RETENTION_DAYS, DEFAULT_DATA_RETENTION_DAYS
                 ),
+                CONF_RAINBIRD_DEBOUNCE_MINUTES: user_input.get(
+                    CONF_RAINBIRD_DEBOUNCE_MINUTES, DEFAULT_RAINBIRD_DEBOUNCE_MINUTES
+                ),
+                CONF_MIN_WATERING_INTERVAL_HOURS: user_input.get(
+                    CONF_MIN_WATERING_INTERVAL_HOURS, DEFAULT_MIN_WATERING_INTERVAL_HOURS
+                ),
+                CONF_AUTO_CALCULATE_ON_WEATHER_UPDATE: user_input.get(
+                    CONF_AUTO_CALCULATE_ON_WEATHER_UPDATE, DEFAULT_AUTO_CALCULATE_ON_WEATHER_UPDATE
+                ),
             })
             return await self.async_step_zones()
 
@@ -130,6 +145,18 @@ class IrrigationPlannerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_DATA_RETENTION_DAYS,
                     default=DEFAULT_DATA_RETENTION_DAYS,
                 ): vol.All(vol.Coerce(int), vol.Range(min=1, max=14)),
+                vol.Optional(
+                    CONF_RAINBIRD_DEBOUNCE_MINUTES,
+                    default=DEFAULT_RAINBIRD_DEBOUNCE_MINUTES,
+                ): vol.All(vol.Coerce(int), vol.Range(min=1, max=60)),
+                vol.Optional(
+                    CONF_MIN_WATERING_INTERVAL_HOURS,
+                    default=DEFAULT_MIN_WATERING_INTERVAL_HOURS,
+                ): vol.All(vol.Coerce(int), vol.Range(min=0, max=168)),
+                vol.Optional(
+                    CONF_AUTO_CALCULATE_ON_WEATHER_UPDATE,
+                    default=DEFAULT_AUTO_CALCULATE_ON_WEATHER_UPDATE,
+                ): bool,
             }),
         )
 
@@ -270,6 +297,16 @@ class IrrigationPlannerOptionsFlow(config_entries.OptionsFlow):
             self._updated_data[CONF_DATA_RETENTION_DAYS] = user_input.get(
                 CONF_DATA_RETENTION_DAYS, DEFAULT_DATA_RETENTION_DAYS
             )
+            self._updated_data[CONF_RAINBIRD_DEBOUNCE_MINUTES] = user_input.get(
+                CONF_RAINBIRD_DEBOUNCE_MINUTES, DEFAULT_RAINBIRD_DEBOUNCE_MINUTES
+            )
+            self._updated_data[CONF_MIN_WATERING_INTERVAL_HOURS] = user_input.get(
+                CONF_MIN_WATERING_INTERVAL_HOURS, DEFAULT_MIN_WATERING_INTERVAL_HOURS
+            )
+            self._updated_data[CONF_AUTO_CALCULATE_ON_WEATHER_UPDATE] = user_input.get(
+                CONF_AUTO_CALCULATE_ON_WEATHER_UPDATE,
+                DEFAULT_AUTO_CALCULATE_ON_WEATHER_UPDATE,
+            )
             self.hass.config_entries.async_update_entry(
                 self._config_entry, data=self._updated_data
             )
@@ -291,6 +328,21 @@ class IrrigationPlannerOptionsFlow(config_entries.OptionsFlow):
                     CONF_DATA_RETENTION_DAYS,
                     default=current.get(CONF_DATA_RETENTION_DAYS, DEFAULT_DATA_RETENTION_DAYS),
                 ): vol.All(vol.Coerce(int), vol.Range(min=1, max=14)),
+                vol.Optional(
+                    CONF_RAINBIRD_DEBOUNCE_MINUTES,
+                    default=current.get(CONF_RAINBIRD_DEBOUNCE_MINUTES, DEFAULT_RAINBIRD_DEBOUNCE_MINUTES),
+                ): vol.All(vol.Coerce(int), vol.Range(min=1, max=60)),
+                vol.Optional(
+                    CONF_MIN_WATERING_INTERVAL_HOURS,
+                    default=current.get(CONF_MIN_WATERING_INTERVAL_HOURS, DEFAULT_MIN_WATERING_INTERVAL_HOURS),
+                ): vol.All(vol.Coerce(int), vol.Range(min=0, max=168)),
+                vol.Optional(
+                    CONF_AUTO_CALCULATE_ON_WEATHER_UPDATE,
+                    default=current.get(
+                        CONF_AUTO_CALCULATE_ON_WEATHER_UPDATE,
+                        DEFAULT_AUTO_CALCULATE_ON_WEATHER_UPDATE,
+                    ),
+                ): bool,
             }),
         )
 

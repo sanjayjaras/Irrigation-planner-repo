@@ -275,11 +275,11 @@ class IrrigationCalculator:
         duration_multiplier = zone_config.get(CONF_ZONE_DURATION_MULTIPLIER, DEFAULT_DURATION_MULTIPLIER)
         max_duration = zone_config.get(CONF_ZONE_MAX_DURATION_MINUTES, DEFAULT_MAX_DURATION_MINUTES)
         duration_minutes = 0.0
-        if new_bucket < BUCKET_IRRIGATION_THRESHOLD:
+        if new_bucket <= BUCKET_IRRIGATION_THRESHOLD:
             # Need to water: deficit = how far below 100% (fully watered)
             # At 0% bucket -> 100% deficit (max watering)
             # At -20% bucket -> 120% deficit (even more watering)
-            deficit_pct = BUCKET_MAX_PERCENT - new_bucket
+            deficit_pct = BUCKET_TARGET_REFILL - new_bucket
             deficit_inches = (deficit_pct / 100.0) * bucket_capacity_inches
             if sprinkler_rate > 0:
                 duration_minutes = max(0, (deficit_inches / sprinkler_rate) * 60)
