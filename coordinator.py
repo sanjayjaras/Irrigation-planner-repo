@@ -11,6 +11,7 @@ from homeassistant.helpers.event import (
     async_track_time_interval,
     async_track_time_change,
     async_track_state_change_event,
+    async_call_later,
 )
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
@@ -69,6 +70,11 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
         self._unsub_calc_time = None
         self._unsub_prune_time = None
         self._unsub_rainbird_listeners = []
+        self._zone_debounce_timers: dict[str, Any] = {}  # zone_id -> unsub callback
+
+        # Debounce delay in seconds: wait this long after last off event
+        # before marking zone as watered (allows for repeat cycles)
+        self._debounce_delay = 600  # 10 minutes
 
     async def async_setup(self) -> None:
         """Set up the coordinator: load data, schedule tasks."""
@@ -146,6 +152,9 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
             self._unsub_prune_time()
         for unsub in self._unsub_rainbird_listeners:
             unsub()
+        for unsub in self._zone_debounce_timers.values():
+            unsub()
+        self._zone_debounce_timers.clear()
 
     # --- Scheduled Callbacks ---
 
@@ -246,20 +255,51 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
 
 
     async def _async_rainbird_state_change(self, event) -> None:
-        """Handle Rainbird switch state change."""
+        """Handle Rainbird switch state change with per-zone debounce."""
         new_state = event.data.get("new_state")
         old_state = event.data.get("old_state")
-        if old_state and new_state:
-            if old_state.state == "on" and new_state.state == "off":
-                entity_id = event.data.get("entity_id", "")
-                zone_id = self._rainbird_to_zone.get(entity_id)
-                if zone_id:
-                    _LOGGER.info(
-                        "Rainbird %s turned off, setting %s bucket to 100%%",
-                        entity_id, zone_id,
-                    )
-                    await self.store.async_reset_zone_bucket(zone_id, 100.0)
-                await self.async_mark_watered()
+        if not old_state or not new_state:
+            return
+
+        entity_id = event.data.get("entity_id", "")
+        zone_id = self._rainbird_to_zone.get(entity_id)
+        if not zone_id:
+            return
+
+        if old_state.state == "on" and new_state.state == "off":
+            # Zone turned off — start/restart debounce timer
+            # Cancel existing timer if still pending (repeat cycle)
+            if zone_id in self._zone_debounce_timers:
+                self._zone_debounce_timers[zone_id]()
+                _LOGGER.debug("Reset debounce timer for %s (repeat cycle)", zone_id)
+
+            async def _mark_zone_done(_now, _zone_id=zone_id, _entity_id=entity_id):
+                """Called after debounce delay — mark zone as watered."""
+                _LOGGER.info(
+                    "Debounce expired: Rainbird %s done, setting %s to 100%%",
+                    _entity_id, _zone_id,
+                )
+                self._zone_debounce_timers.pop(_zone_id, None)
+                await self.store.async_reset_zone_bucket(_zone_id, 100.0)
+                await self.store.async_record_watering()
+                await self._async_update_data_from_store()
+
+            unsub = async_call_later(self.hass, self._debounce_delay, _mark_zone_done)
+            self._zone_debounce_timers[zone_id] = unsub
+            _LOGGER.info(
+                "Rainbird %s turned off, debounce %ds for %s",
+                entity_id, self._debounce_delay, zone_id,
+            )
+
+        elif old_state.state == "off" and new_state.state == "on":
+            # Zone turned back on — cancel debounce (another cycle starting)
+            if zone_id in self._zone_debounce_timers:
+                self._zone_debounce_timers[zone_id]()
+                self._zone_debounce_timers.pop(zone_id)
+                _LOGGER.info(
+                    "Rainbird %s turned on again, cancelled debounce for %s",
+                    entity_id, zone_id,
+                )
 
     # --- Internal ---
 
