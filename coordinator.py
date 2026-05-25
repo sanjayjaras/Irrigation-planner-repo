@@ -26,6 +26,9 @@ from .const import (
     CONF_RAINBIRD_DEBOUNCE_MINUTES,
     CONF_MIN_WATERING_INTERVAL_HOURS,
     CONF_AUTO_CALCULATE_ON_WEATHER_UPDATE,
+    CONF_RAIN_THRESHOLD_MM,
+    CONF_RAIN_LIGHT_EFFECTIVENESS,
+    CONF_FORECAST_CONFIDENCE,
     CONF_UPDATE_INTERVAL_MINUTES,
     CONF_ZONES,
     DEFAULT_CALC_TIME,
@@ -33,6 +36,9 @@ from .const import (
     DEFAULT_MIN_WATERING_INTERVAL_HOURS,
     DEFAULT_RAINBIRD_DEBOUNCE_MINUTES,
     DEFAULT_AUTO_CALCULATE_ON_WEATHER_UPDATE,
+    DEFAULT_RAIN_THRESHOLD_MM,
+    DEFAULT_RAIN_LIGHT_EFFECTIVENESS,
+    DEFAULT_FORECAST_CONFIDENCE,
     DEFAULT_UPDATE_INTERVAL_MINUTES,
 )
 from .store import IrrigationPlannerStore
@@ -236,6 +242,17 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
             _LOGGER.warning("No weather history available, skipping calculation")
             return
 
+        # Get rain effectiveness and forecast confidence settings
+        rain_threshold_mm = self._config.get(
+            CONF_RAIN_THRESHOLD_MM, DEFAULT_RAIN_THRESHOLD_MM
+        )
+        rain_light_effectiveness = self._config.get(
+            CONF_RAIN_LIGHT_EFFECTIVENESS, DEFAULT_RAIN_LIGHT_EFFECTIVENESS
+        )
+        forecast_confidence = self._config.get(
+            CONF_FORECAST_CONFIDENCE, DEFAULT_FORECAST_CONFIDENCE
+        )
+
         for idx, zone_config in enumerate(zones):
             zone_id = f"zone_{idx + 1}"
             zone_data = self.store.get_zone_data(zone_id)
@@ -245,6 +262,9 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
                 zone_data=zone_data,
                 weather_history=weather_history,
                 weather_forecast=weather_forecast,
+                rain_threshold_mm=rain_threshold_mm,
+                rain_light_effectiveness=rain_light_effectiveness,
+                forecast_confidence=forecast_confidence,
             )
 
             # Safety cooldown: do not water again too soon after last watering
@@ -282,6 +302,7 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
                 "duration_minutes": 0.0,
                 "cooldown_active": False,
                 "cooldown_remaining_hours": None,
+                "last_calculated": datetime.now().isoformat(),
             })
         await self._async_update_data_from_store()
         _LOGGER.info("Watering recorded, all buckets set to 100%%")
@@ -329,6 +350,7 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
                     "duration_minutes": 0.0,
                     "cooldown_active": False,
                     "cooldown_remaining_hours": None,
+                    "last_calculated": datetime.now().isoformat(),
                 })
                 await self.store.async_record_watering()
                 await self._async_update_data_from_store()
@@ -423,6 +445,15 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
             "auto_calculate_on_weather_update": self._config.get(
                 CONF_AUTO_CALCULATE_ON_WEATHER_UPDATE,
                 DEFAULT_AUTO_CALCULATE_ON_WEATHER_UPDATE,
+            ),
+            "rain_threshold_mm": self._config.get(
+                CONF_RAIN_THRESHOLD_MM, DEFAULT_RAIN_THRESHOLD_MM
+            ),
+            "rain_light_effectiveness": self._config.get(
+                CONF_RAIN_LIGHT_EFFECTIVENESS, DEFAULT_RAIN_LIGHT_EFFECTIVENESS
+            ),
+            "forecast_confidence": self._config.get(
+                CONF_FORECAST_CONFIDENCE, DEFAULT_FORECAST_CONFIDENCE
             ),
             "history_entries": len(history),
             "forecast_entries": len(forecast),

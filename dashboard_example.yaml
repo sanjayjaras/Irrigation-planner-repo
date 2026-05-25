@@ -88,6 +88,24 @@ sections:
             icon: mdi:av-timer
           - type: attribute
             entity: sensor.irrigation_planner_weather
+            attribute: rain_threshold_mm
+            name: Rain Threshold
+            suffix: mm
+            icon: mdi:water-alert
+          - type: attribute
+            entity: sensor.irrigation_planner_weather
+            attribute: rain_light_effectiveness
+            name: Light Rain Effectiveness
+            suffix: "%"
+            icon: mdi:water-percent
+          - type: attribute
+            entity: sensor.irrigation_planner_weather
+            attribute: forecast_confidence
+            name: Forecast Confidence
+            suffix: "%"
+            icon: mdi:cloud-percent
+          - type: attribute
+            entity: sensor.irrigation_planner_weather
             attribute: history_entries
             name: History Data Points
             icon: mdi:database
@@ -121,6 +139,24 @@ sections:
             name: Min Watering Interval (Slider)
           - entity: switch.irrigation_planner_auto_calculate_on_weather_update
             name: Auto Calculate on Weather Update
+          - entity: number.irrigation_planner_rain_threshold
+            name: Light Rain Threshold (mm)
+          - entity: number.irrigation_planner_light_rain_effectiveness
+            name: Light Rain Effectiveness (%)
+          - entity: number.irrigation_planner_forecast_confidence
+            name: Forecast Confidence (%)
+
+  - type: grid
+    title: Zone 1 Config (Editable)
+    cards:
+      - type: entities
+        entities:
+          - entity: number.irrigation_zone_1_max_duration
+            name: Max Duration (min)
+          - entity: number.irrigation_zone_1_duration_multiplier
+            name: Duration Multiplier
+          - entity: number.irrigation_zone_1_sprinkler_rate
+            name: Sprinkler Rate (in/hr)
 
   # --- Zone 1 ---
   - type: grid
@@ -197,6 +233,18 @@ sections:
         title: Calculation Details
         content: |
           {{ state_attr('sensor.irrigation_zone_1_breakdown', 'explanation') }}
+
+  - type: grid
+    title: Zone 2 Config (Editable)
+    cards:
+      - type: entities
+        entities:
+          - entity: number.irrigation_zone_2_max_duration
+            name: Max Duration (min)
+          - entity: number.irrigation_zone_2_duration_multiplier
+            name: Duration Multiplier
+          - entity: number.irrigation_zone_2_sprinkler_rate
+            name: Sprinkler Rate (in/hr)
 
   # --- Zone 2 (duplicate and adjust for each zone) ---
   - type: grid

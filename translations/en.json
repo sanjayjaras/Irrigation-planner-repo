@@ -19,7 +19,10 @@
           "data_retention_days": "Weather Data Retention (days)",
           "rainbird_debounce_minutes": "Rainbird Zone Debounce (minutes)",
           "min_watering_interval_hours": "Minimum Interval Between Watering (hours)",
-          "auto_calculate_on_weather_update": "Auto Calculate on Weather Update"
+          "auto_calculate_on_weather_update": "Auto Calculate on Weather Update",
+          "rain_threshold_mm": "Light Rain Threshold (mm)",
+          "rain_light_effectiveness": "Light Rain Effectiveness (%)",
+          "forecast_confidence": "Forecast Rain Confidence (%)"
         }
       },
       "zones": {
@@ -57,7 +60,10 @@
           "data_retention_days": "Weather Data Retention (days)",
           "rainbird_debounce_minutes": "Rainbird Zone Debounce (minutes)",
           "min_watering_interval_hours": "Minimum Interval Between Watering (hours)",
-          "auto_calculate_on_weather_update": "Auto Calculate on Weather Update"
+          "auto_calculate_on_weather_update": "Auto Calculate on Weather Update",
+          "rain_threshold_mm": "Light Rain Threshold (mm)",
+          "rain_light_effectiveness": "Light Rain Effectiveness (%)",
+          "forecast_confidence": "Forecast Rain Confidence (%)"
         }
       },
       "api": {

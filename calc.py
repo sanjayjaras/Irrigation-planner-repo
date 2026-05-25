@@ -22,7 +22,7 @@ from .const import (
     WEATHER_CLOUDS,
     SUN_EXPOSURE_MULTIPLIER,
     SUN_FULL,
-    SOIL_DRAINAGE_RATE_IN_PER_DAY,
+    SOIL_DRAINAGE_PCT_PER_DAY,
     SOIL_LOAM,
     PLANT_WATER_MULTIPLIER,
     PLANT_GRASS,
@@ -166,6 +166,9 @@ class IrrigationCalculator:
         zone_data: dict[str, Any],
         weather_history: list[dict[str, Any]],
         weather_forecast: list[dict[str, Any]],
+        rain_threshold_mm: float = 5.0,
+        rain_light_effectiveness: float = 50.0,
+        forecast_confidence: float = 50.0,
     ) -> dict[str, Any]:
         """Calculate irrigation for a single zone.
 
@@ -181,17 +184,37 @@ class IrrigationCalculator:
         now = datetime.now()
         doy = now.timetuple().tm_yday
 
+        # Filter weather history to only include data since last calculation
+        # This prevents applying ET for the same time period repeatedly
+        last_calculated_str = zone_data.get("last_calculated")
+        if last_calculated_str:
+            try:
+                last_calculated = datetime.fromisoformat(last_calculated_str)
+                # Only include weather entries after last calculation
+                filtered_history = [
+                    e for e in weather_history
+                    if e.get("timestamp") and datetime.fromisoformat(e["timestamp"]) > last_calculated
+                ]
+                # If no new data since last calculation, use empty list
+                # (weather will be re-applied on next weather refresh)
+                weather_history = filtered_history if filtered_history else []
+            except (ValueError, TypeError):
+                pass  # Use full history if parsing fails
+
         # Get zone parameters
         sun_exposure = zone_config.get("sun_exposure", SUN_FULL)
         soil_type = zone_config.get("soil_type", SOIL_LOAM)
         plant_type = zone_config.get("plant_type", PLANT_GRASS)
         sprinkler_rate = zone_config.get("sprinkler_rate_in_per_hr", 1.0)
+        max_duration = zone_config.get(CONF_ZONE_MAX_DURATION_MINUTES, DEFAULT_MAX_DURATION_MINUTES)
+        duration_multiplier = zone_config.get(CONF_ZONE_DURATION_MULTIPLIER, DEFAULT_DURATION_MULTIPLIER)
 
         # Current bucket
         old_bucket = zone_data.get("bucket_percent", 0.0)
 
         # --- Calculate ET from weather history ---
         et_total_mm = 0.0
+        hours_spanned = 0.0
         if weather_history:
             avg_temp = self._avg(weather_history, WEATHER_TEMPERATURE, 20.0)
             avg_humidity = self._avg(weather_history, WEATHER_HUMIDITY, 50.0)
@@ -209,7 +232,7 @@ class IrrigationCalculator:
                 last = datetime.fromisoformat(max(timestamps))
                 hours_spanned = max((last - first).total_seconds() / 3600, 1.0)
             else:
-                hours_spanned = 24.0
+                hours_spanned = 1.0  # single data point, assume 1 hour
 
             et_total_mm = estimate_et_penman_simplified(
                 temp_c=avg_temp,
@@ -222,8 +245,15 @@ class IrrigationCalculator:
                 day_of_year=doy,
                 hours=hours_spanned,
             )
-        else:
-            hours_spanned = 24.0
+        elif last_calculated_str:
+            # No new weather data but we know when last calc was — use actual elapsed time
+            try:
+                hours_spanned = max(
+                    (now - datetime.fromisoformat(last_calculated_str)).total_seconds() / 3600,
+                    0.0,
+                )
+            except (ValueError, TypeError):
+                hours_spanned = 0.0
 
         et_total_inches = et_total_mm * MM_TO_INCHES
 
@@ -236,7 +266,18 @@ class IrrigationCalculator:
         rain_actual_mm = sum(
             e.get(WEATHER_PRECIP_ACTUAL, 0.0) for e in weather_history
         )
-        rain_actual_inches = rain_actual_mm * MM_TO_INCHES
+        # Apply non-linear effectiveness: light rain below threshold is less effective
+        # (e.g., drizzle evaporates quickly or runs off)
+        light_effectiveness_frac = rain_light_effectiveness / 100.0
+        if rain_actual_mm <= rain_threshold_mm:
+            effective_rain_actual_mm = rain_actual_mm * light_effectiveness_frac
+        else:
+            # Rain above threshold: first part at reduced rate, remainder at 100%
+            effective_rain_actual_mm = (
+                rain_threshold_mm * light_effectiveness_frac
+                + (rain_actual_mm - rain_threshold_mm)
+            )
+        rain_actual_inches = effective_rain_actual_mm * MM_TO_INCHES
 
         # --- Forecast rain (next 2 days) ---
         rain_forecast_mm = sum(
@@ -244,26 +285,30 @@ class IrrigationCalculator:
         )
         rain_forecast_inches = rain_forecast_mm * MM_TO_INCHES
 
-        # Only count a fraction of forecast rain (it may not happen)
-        forecast_confidence = 0.5  # 50% confidence in forecast
-        effective_forecast_inches = rain_forecast_inches * forecast_confidence
+        # Apply user-configurable confidence to forecast rain
+        forecast_confidence_frac = forecast_confidence / 100.0
+        effective_forecast_inches = rain_forecast_inches * forecast_confidence_frac
+
+        # Derive bucket capacity from zone's max_duration and sprinkler_rate
+        # so that 100% deficit = exactly max_duration minutes of watering
+        # This makes proportional scaling intuitive: 50% deficit = 50% duration
+        bucket_capacity_inches = (max_duration / 60.0) * sprinkler_rate
 
         # --- Drainage ---
-        drainage_rate = SOIL_DRAINAGE_RATE_IN_PER_DAY.get(soil_type, 0.5)
+        # Drainage is a percentage of bucket lost per day, scaled by current level
+        drainage_pct_per_day = SOIL_DRAINAGE_PCT_PER_DAY.get(soil_type, 10.0)
         days_elapsed = hours_spanned / 24.0
-        drainage_inches = drainage_rate * days_elapsed * (old_bucket / 100.0)
+        drainage_source_pct = max(0.0, min(old_bucket, 100.0))
+        drainage_pct = drainage_pct_per_day * days_elapsed * (drainage_source_pct / 100.0)
+        drainage_inches = (drainage_pct / 100.0) * bucket_capacity_inches
 
         # --- Net change in bucket ---
         # Positive = gaining moisture, negative = losing moisture
-        moisture_gain = rain_actual_inches + effective_forecast_inches
+        # Forecast rain is NOT added to bucket moisture (option 2 behavior).
+        # It is only applied later as a reduction to irrigation duration.
+        moisture_gain = rain_actual_inches
         moisture_loss = adjusted_et_inches + drainage_inches
         net_change_inches = moisture_gain - moisture_loss
-
-        # Convert net change to percentage of bucket capacity
-        # We define 100% = soil at field capacity
-        # Use a reference depth: 1 inch of net change = ~25% bucket change
-        # This makes the bucket respond meaningfully to daily ET
-        bucket_capacity_inches = 4.0  # inches of water at 100% bucket
         net_change_pct = (net_change_inches / bucket_capacity_inches) * 100.0
 
         new_bucket = max(
@@ -272,29 +317,37 @@ class IrrigationCalculator:
         )
 
         # --- Duration calculation ---
-        duration_multiplier = zone_config.get(CONF_ZONE_DURATION_MULTIPLIER, DEFAULT_DURATION_MULTIPLIER)
-        max_duration = zone_config.get(CONF_ZONE_MAX_DURATION_MINUTES, DEFAULT_MAX_DURATION_MINUTES)
+        # Calculate duration proportional to deficit from 100% (fully watered)
+        # 100% bucket -> 0% deficit -> 0 min
+        # 50% bucket -> 50% deficit -> half duration
+        # 0% bucket -> 100% deficit -> full duration
+        # Negative bucket -> >100% deficit -> extra watering to recover
+        deficit_pct = max(0, BUCKET_TARGET_REFILL - new_bucket)  # deficit from fully-watered
+        deficit_inches = (deficit_pct / 100.0) * bucket_capacity_inches
+
+        # Apply forecast only to duration (not bucket).
+        # Forecast can reduce irrigation need, but never below zero.
+        forecast_duration_offset_inches = min(
+            deficit_inches,
+            max(0.0, effective_forecast_inches),
+        )
+        adjusted_deficit_inches = max(0.0, deficit_inches - forecast_duration_offset_inches)
+
         duration_minutes = 0.0
-        if new_bucket <= BUCKET_IRRIGATION_THRESHOLD:
-            # Need to water: deficit = how far below 100% (fully watered)
-            # At 0% bucket -> 100% deficit (max watering)
-            # At -20% bucket -> 120% deficit (even more watering)
-            deficit_pct = BUCKET_TARGET_REFILL - new_bucket
-            deficit_inches = (deficit_pct / 100.0) * bucket_capacity_inches
-            if sprinkler_rate > 0:
-                duration_minutes = max(0, (deficit_inches / sprinkler_rate) * 60)
-            # Apply user multiplier
-            duration_minutes *= duration_multiplier
-            # Cap at max duration
-            duration_minutes = min(duration_minutes, max_duration)
-            # Minimum practical threshold: below 1 minute is useless
-            if duration_minutes < 1.0:
-                duration_minutes = 0.0
+        if sprinkler_rate > 0:
+            duration_minutes = (adjusted_deficit_inches / sprinkler_rate) * 60
+        # Apply user multiplier
+        duration_minutes *= duration_multiplier
+        # Cap at max duration
+        duration_minutes = min(duration_minutes, max_duration)
+        # Minimum practical threshold: below 1 minute is not useful
+        if duration_minutes < 1.0:
+            duration_minutes = 0.0
 
         # --- Factor breakdown (impact on bucket in %) ---
         et_impact_pct = -(adjusted_et_inches / bucket_capacity_inches) * 100
         rain_actual_impact_pct = (rain_actual_inches / bucket_capacity_inches) * 100
-        rain_forecast_impact_pct = (effective_forecast_inches / bucket_capacity_inches) * 100
+        rain_forecast_impact_pct = 0.0  # forecast does not alter bucket moisture
         drainage_impact_pct = -(drainage_inches / bucket_capacity_inches) * 100
         sun_impact_pct = et_impact_pct * (1 - sun_mult) / sun_mult if sun_mult != 1.0 and sun_mult > 0 else 0
         temp_impact_pct = et_impact_pct  # ET is primarily temp-driven
@@ -309,11 +362,13 @@ class IrrigationCalculator:
             # Absolute values
             "et_inches": round(adjusted_et_inches, 4),
             "et_mm": round(adjusted_et_inches * INCHES_TO_MM, 2),
+            "rain_actual_raw_mm": round(rain_actual_mm, 2),
+            "rain_actual_mm": round(effective_rain_actual_mm, 2),
             "rain_actual_inches": round(rain_actual_inches, 4),
-            "rain_actual_mm": round(rain_actual_mm, 2),
-            "rain_forecast_inches": round(rain_forecast_inches, 4),
             "rain_forecast_mm": round(rain_forecast_mm, 2),
+            "rain_forecast_inches": round(rain_forecast_inches, 4),
             "effective_forecast_inches": round(effective_forecast_inches, 4),
+            "forecast_duration_offset_inches": round(forecast_duration_offset_inches, 4),
             "drainage_inches": round(drainage_inches, 4),
             "net_change_inches": round(net_change_inches, 4),
             "net_change_percent": round(net_change_pct, 1),
@@ -325,7 +380,7 @@ class IrrigationCalculator:
                 "rain_forecast": round(rain_forecast_impact_pct, 1),
                 "drainage": round(drainage_impact_pct, 1),
                 "sun_exposure": f"{sun_exposure} ({sun_mult}x)",
-                "soil_type": f"{zone_config.get('soil_type', SOIL_LOAM)} ({drainage_rate} in/day)",
+                "soil_type": f"{zone_config.get('soil_type', SOIL_LOAM)} ({drainage_pct_per_day}%/day)",
                 "plant_type": f"{plant_type} ({plant_mult}x)",
             },
 
@@ -341,7 +396,9 @@ class IrrigationCalculator:
             # Human-readable explanation
             "explanation": self._build_explanation(
                 old_bucket, new_bucket, adjusted_et_inches, rain_actual_inches,
-                rain_forecast_inches, effective_forecast_inches, drainage_inches,
+                rain_forecast_inches, effective_forecast_inches,
+                forecast_duration_offset_inches, forecast_confidence,
+                drainage_inches,
                 net_change_inches, net_change_pct, duration_minutes,
                 sun_exposure, sun_mult, soil_type, plant_type, plant_mult,
                 hours_spanned, len(weather_history),
@@ -365,7 +422,8 @@ class IrrigationCalculator:
     def _build_explanation(
         self,
         old_bucket, new_bucket, et_inches, rain_actual, rain_forecast,
-        effective_forecast, drainage, net_change, net_change_pct,
+        effective_forecast, forecast_duration_offset, forecast_confidence,
+        drainage, net_change, net_change_pct,
         duration, sun_exposure, sun_mult, soil_type, plant_type,
         plant_mult, hours, data_points,
     ) -> str:
@@ -379,12 +437,15 @@ class IrrigationCalculator:
         lines.append(f"    Plant: {plant_type} ({plant_mult}x multiplier)")
         lines.append(f"  Drainage ({soil_type} soil): -{drainage:.4f} inches")
         lines.append("")
-        lines.append("Water Gain:")
+        lines.append("Water Gain (bucket):")
         lines.append(f"  Actual rain (2 days): +{rain_actual:.4f} inches ({rain_actual * INCHES_TO_MM:.2f} mm)")
-        lines.append(f"  Forecast rain (2 days): +{rain_forecast:.4f} inches ({rain_forecast * INCHES_TO_MM:.2f} mm)")
-        lines.append(f"    Effective (50% confidence): +{effective_forecast:.4f} inches")
         lines.append("")
-        lines.append(f"Net change: {net_change:+.4f} inches ({net_change_pct:+.1f}%)")
+        lines.append("Forecast Adjustment (duration only):")
+        lines.append(f"  Forecast rain (2 days): +{rain_forecast:.4f} inches ({rain_forecast * INCHES_TO_MM:.2f} mm)")
+        lines.append(f"    Effective ({forecast_confidence:.0f}% confidence): +{effective_forecast:.4f} inches")
+        lines.append(f"    Applied to irrigation reduction: -{forecast_duration_offset:.4f} inches")
+        lines.append("")
+        lines.append(f"Net change (bucket): {net_change:+.4f} inches ({net_change_pct:+.1f}%)")
         lines.append(f"Bucket: {old_bucket:.1f}% -> {new_bucket:.1f}%")
         lines.append("")
         if duration > 0:

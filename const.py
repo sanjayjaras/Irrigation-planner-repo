@@ -13,6 +13,9 @@ CONF_UPDATE_INTERVAL_MINUTES = "update_interval_minutes"
 CONF_RAINBIRD_DEBOUNCE_MINUTES = "rainbird_debounce_minutes"
 CONF_MIN_WATERING_INTERVAL_HOURS = "min_watering_interval_hours"
 CONF_AUTO_CALCULATE_ON_WEATHER_UPDATE = "auto_calculate_on_weather_update"
+CONF_RAIN_THRESHOLD_MM = "rain_threshold_mm"
+CONF_RAIN_LIGHT_EFFECTIVENESS = "rain_light_effectiveness"
+CONF_FORECAST_CONFIDENCE = "forecast_confidence"
 
 # Zone configuration
 CONF_ZONES = "zones"
@@ -57,13 +60,13 @@ SOIL_TYPE_OPTIONS = {
     SOIL_SILT: "Silt",
 }
 
-# Soil water holding capacity (inches of water per inch of soil depth)
-# Used to determine how fast water drains
-SOIL_DRAINAGE_RATE_IN_PER_DAY = {
-    SOIL_SANDY: 2.0,   # drains fast
-    SOIL_LOAM: 0.5,    # moderate
-    SOIL_CLAY: 0.15,   # drains slow
-    SOIL_SILT: 0.3,    # moderate-slow
+# Soil drainage as percentage of bucket lost per day
+# e.g., loam at 10% means full bucket drains to 0% in ~10 days from drainage alone
+SOIL_DRAINAGE_PCT_PER_DAY = {
+    SOIL_SANDY: 25.0,   # drains fast (~4 days to empty)
+    SOIL_LOAM: 10.0,    # moderate (~10 days to empty)
+    SOIL_CLAY: 3.0,     # drains slow (~33 days to empty)
+    SOIL_SILT: 6.0,     # moderate-slow (~17 days to empty)
 }
 
 # Plant type options
@@ -97,6 +100,9 @@ DEFAULT_UPDATE_INTERVAL_MINUTES = 60
 DEFAULT_RAINBIRD_DEBOUNCE_MINUTES = 10
 DEFAULT_MIN_WATERING_INTERVAL_HOURS = 24
 DEFAULT_AUTO_CALCULATE_ON_WEATHER_UPDATE = True
+DEFAULT_RAIN_THRESHOLD_MM = 5.0
+DEFAULT_RAIN_LIGHT_EFFECTIVENESS = 50
+DEFAULT_FORECAST_CONFIDENCE = 50
 DEFAULT_AREA_SQFT = 500
 DEFAULT_SPRINKLER_RATE_IN_PER_HR = 1.0
 DEFAULT_DURATION_MULTIPLIER = 1.0
