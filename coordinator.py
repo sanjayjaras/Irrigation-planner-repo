@@ -169,6 +169,13 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
 
     async def _async_weather_update_callback(self, now=None) -> None:
         """Scheduled weather update, then recalculate."""
+        # Skip entirely during irrigation window to avoid any state
+        # changes that could interfere with the running program.
+        if self._is_in_irrigation_window():
+            _LOGGER.info(
+                "Skipping weather update & calculation: inside irrigation window"
+            )
+            return
         await self.async_refresh_weather()
         if not self._config.get(
             CONF_AUTO_CALCULATE_ON_WEATHER_UPDATE,
@@ -252,6 +259,17 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
         forecast_confidence = self._config.get(
             CONF_FORECAST_CONFIDENCE, DEFAULT_FORECAST_CONFIDENCE
         )
+
+        # Skip calculation if we are inside the Irrigation Controller's
+        # watering window.  The window runs from (start_time - buffer)
+        # through (start_time + program_duration + buffer).  We also
+        # fall back to checking the program switch state in case the
+        # start time or duration entities are unavailable.
+        if self._is_in_irrigation_window():
+            _LOGGER.info(
+                "Skipping calculation: inside Irrigation Controller watering window"
+            )
+            return
 
         for idx, zone_config in enumerate(zones):
             zone_id = f"zone_{idx + 1}"
@@ -388,6 +406,69 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
         except (ValueError, TypeError):
             return False
         return (datetime.now() - last_dt).total_seconds() < min_gap_seconds
+
+    # --- Irrigation Window Detection ---
+
+    # Entity IDs for the Irrigation Controller program
+    _IC_START_TIME_ENTITY = "time.start_time"
+    _IC_DURATION_ENTITY = "sensor.duration"
+    _IC_PROGRAM_ENTITY = "switch.sprinkler_scheduler"
+    _IC_WINDOW_BUFFER_MINUTES = 5  # buffer before start and after end
+
+    def _is_in_irrigation_window(self) -> bool:
+        """Return True if current time falls inside the Irrigation Controller's watering window.
+
+        Window = (start_time - buffer) to (start_time + duration + buffer).
+        Falls back to checking the program switch if entities are unavailable.
+        """
+        now = datetime.now()
+        buffer = timedelta(minutes=self._IC_WINDOW_BUFFER_MINUTES)
+
+        start_state = self.hass.states.get(self._IC_START_TIME_ENTITY)
+        duration_state = self.hass.states.get(self._IC_DURATION_ENTITY)
+
+        if start_state and duration_state:
+            try:
+                # Parse start time (HH:MM:SS) into today's datetime
+                parts = start_state.state.split(":")
+                start_time = now.replace(
+                    hour=int(parts[0]),
+                    minute=int(parts[1]),
+                    second=int(parts[2]) if len(parts) > 2 else 0,
+                    microsecond=0,
+                )
+
+                # Parse duration (HH:MM:SS) into timedelta
+                d_parts = duration_state.state.split(":")
+                duration_td = timedelta(
+                    hours=int(d_parts[0]),
+                    minutes=int(d_parts[1]),
+                    seconds=int(d_parts[2]) if len(d_parts) > 2 else 0,
+                )
+
+                window_start = start_time - buffer
+                window_end = start_time + duration_td + buffer
+
+                if window_start <= now <= window_end:
+                    _LOGGER.debug(
+                        "Inside irrigation window: %s to %s (now=%s)",
+                        window_start.strftime("%H:%M"),
+                        window_end.strftime("%H:%M"),
+                        now.strftime("%H:%M"),
+                    )
+                    return True
+                return False
+
+            except (ValueError, TypeError, IndexError) as err:
+                _LOGGER.debug("Could not parse irrigation window entities: %s", err)
+
+        # Fallback: check if the program switch is currently on
+        program_state = self.hass.states.get(self._IC_PROGRAM_ENTITY)
+        if program_state and program_state.state == "on":
+            _LOGGER.debug("Fallback: program switch %s is on", self._IC_PROGRAM_ENTITY)
+            return True
+
+        return False
 
     # --- Internal ---
 

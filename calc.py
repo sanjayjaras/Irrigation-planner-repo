@@ -18,6 +18,7 @@ from .const import (
     WEATHER_DEW_POINT,
     WEATHER_PRECIP_ACTUAL,
     WEATHER_PRECIP_FORECAST,
+    WEATHER_PRECIP_POP,
     WEATHER_UV_INDEX,
     WEATHER_CLOUDS,
     SUN_EXPOSURE_MULTIPLIER,
@@ -280,12 +281,24 @@ class IrrigationCalculator:
         rain_actual_inches = effective_rain_actual_mm * MM_TO_INCHES
 
         # --- Forecast rain (next 2 days) ---
+        # Step 1: Weight each entry's precipitation by OWM probability of precipitation (pop).
+        # pop=0.0 means no chance of rain, pop=1.0 means certain rain.
+        # Entries without pop (old storage data) default to 1.0 (no discount).
         rain_forecast_mm = sum(
+            e.get(WEATHER_PRECIP_FORECAST, 0.0) * e.get(WEATHER_PRECIP_POP, 1.0)
+            for e in weather_forecast
+        )
+        rain_forecast_raw_mm = sum(
             e.get(WEATHER_PRECIP_FORECAST, 0.0) for e in weather_forecast
+        )
+        avg_pop = (
+            sum(e.get(WEATHER_PRECIP_POP, 1.0) for e in weather_forecast) / len(weather_forecast)
+            if weather_forecast else 1.0
         )
         rain_forecast_inches = rain_forecast_mm * MM_TO_INCHES
 
-        # Apply user-configurable confidence to forecast rain
+        # Step 2: Apply user-configurable confidence on top of pop-weighted rain.
+        # pop captures OWM model uncertainty; forecast_confidence is an additional user discount.
         forecast_confidence_frac = forecast_confidence / 100.0
         effective_forecast_inches = rain_forecast_inches * forecast_confidence_frac
 
@@ -396,8 +409,10 @@ class IrrigationCalculator:
             # Human-readable explanation
             "explanation": self._build_explanation(
                 old_bucket, new_bucket, adjusted_et_inches, rain_actual_inches,
-                rain_forecast_inches, effective_forecast_inches,
+                rain_forecast_raw_mm * MM_TO_INCHES, rain_forecast_inches,
+                effective_forecast_inches,
                 forecast_duration_offset_inches, forecast_confidence,
+                avg_pop,
                 drainage_inches,
                 net_change_inches, net_change_pct, duration_minutes,
                 sun_exposure, sun_mult, soil_type, plant_type, plant_mult,
@@ -421,8 +436,10 @@ class IrrigationCalculator:
 
     def _build_explanation(
         self,
-        old_bucket, new_bucket, et_inches, rain_actual, rain_forecast,
+        old_bucket, new_bucket, et_inches, rain_actual,
+        rain_forecast_raw, rain_forecast_pop_weighted,
         effective_forecast, forecast_duration_offset, forecast_confidence,
+        avg_pop,
         drainage, net_change, net_change_pct,
         duration, sun_exposure, sun_mult, soil_type, plant_type,
         plant_mult, hours, data_points,
@@ -441,8 +458,9 @@ class IrrigationCalculator:
         lines.append(f"  Actual rain (2 days): +{rain_actual:.4f} inches ({rain_actual * INCHES_TO_MM:.2f} mm)")
         lines.append("")
         lines.append("Forecast Adjustment (duration only):")
-        lines.append(f"  Forecast rain (2 days): +{rain_forecast:.4f} inches ({rain_forecast * INCHES_TO_MM:.2f} mm)")
-        lines.append(f"    Effective ({forecast_confidence:.0f}% confidence): +{effective_forecast:.4f} inches")
+        lines.append(f"  Forecast rain (2 days): +{rain_forecast_raw:.4f} inches ({rain_forecast_raw * INCHES_TO_MM:.2f} mm) raw")
+        lines.append(f"    OWM probability (avg pop {avg_pop * 100:.0f}%): +{rain_forecast_pop_weighted:.4f} inches")
+        lines.append(f"    User confidence ({forecast_confidence:.0f}%): +{effective_forecast:.4f} inches")
         lines.append(f"    Applied to irrigation reduction: -{forecast_duration_offset:.4f} inches")
         lines.append("")
         lines.append(f"Net change (bucket): {net_change:+.4f} inches ({net_change_pct:+.1f}%)")
