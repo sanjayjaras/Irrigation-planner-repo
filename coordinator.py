@@ -229,6 +229,7 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
 
         weather_history = self.store.get_weather_history(days=2)
         weather_forecast = self.store.get_forecast(days=2)
+        last_watered = self.store.data.get("last_watered")
 
         if not weather_history:
             _LOGGER.warning("No weather history available, skipping calculation")
@@ -268,10 +269,10 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
                 rain_threshold_mm=rain_threshold_mm,
                 rain_light_effectiveness=rain_light_effectiveness,
                 forecast_confidence=forecast_confidence,
+                last_watered=last_watered,
             )
 
             # Safety cooldown: do not water again too soon after last watering
-            last_watered = self.store.data.get("last_watered")
             if min_interval_hours > 0 and last_watered:
                 try:
                     last_dt = datetime.fromisoformat(last_watered)
@@ -355,9 +356,6 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
 
     # --- Irrigation Window Detection ---
 
-    # Entity IDs for the Irrigation Controller program
-    _IC_START_TIME_ENTITY = "time.start_time"
-    _IC_DURATION_ENTITY = "sensor.duration"
     _IC_PROGRAM_ENTITY = "switch.sprinkler_scheduler"
     _IC_WINDOW_BUFFER_MINUTES = 5  # buffer before start and after end
 
@@ -370,8 +368,19 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
         now = datetime.now()
         buffer = timedelta(minutes=self._IC_WINDOW_BUFFER_MINUTES)
 
-        start_state = self.hass.states.get(self._IC_START_TIME_ENTITY)
-        duration_state = self.hass.states.get(self._IC_DURATION_ENTITY)
+        # Get entity IDs from the program's attributes
+        program_state = self.hass.states.get(self._IC_PROGRAM_ENTITY)
+        if not program_state:
+            return False
+
+        start_time_entity = program_state.attributes.get("start_time")
+        duration_entity = program_state.attributes.get("default_run_time")
+
+        if not start_time_entity or not duration_entity:
+            return False
+
+        start_state = self.hass.states.get(start_time_entity)
+        duration_state = self.hass.states.get(duration_entity)
 
         if start_state and duration_state:
             try:
@@ -408,9 +417,8 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
             except (ValueError, TypeError, IndexError) as err:
                 _LOGGER.debug("Could not parse irrigation window entities: %s", err)
 
-        # Fallback: check if the program switch is currently on
-        program_state = self.hass.states.get(self._IC_PROGRAM_ENTITY)
-        if program_state and program_state.state == "on":
+        # Fallback: if we couldn't parse the time window, check if program is running
+        if program_state.state == "on":
             _LOGGER.debug("Fallback: program switch %s is on", self._IC_PROGRAM_ENTITY)
             return True
 

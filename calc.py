@@ -170,6 +170,7 @@ class IrrigationCalculator:
         rain_threshold_mm: float = 5.0,
         rain_light_effectiveness: float = 50.0,
         forecast_confidence: float = 50.0,
+        last_watered: str | None = None,
     ) -> dict[str, Any]:
         """Calculate irrigation for a single zone.
 
@@ -178,6 +179,7 @@ class IrrigationCalculator:
             zone_data: Current zone state (bucket_percent, etc.)
             weather_history: Actual weather data from last 2 days
             weather_forecast: Forecast data for next 2 days
+            last_watered: ISO timestamp when zone was last watered (global)
 
         Returns:
             Dict with calculation results and factor breakdown.
@@ -185,20 +187,28 @@ class IrrigationCalculator:
         now = datetime.now()
         doy = now.timetuple().tm_yday
 
-        # Filter weather history to only include data since last calculation
-        # This prevents applying ET for the same time period repeatedly
-        last_calculated_str = zone_data.get("last_calculated")
-        if last_calculated_str:
+        # Filter weather history to only include data since last watering.
+        # This applies ET only for time periods after water was actually applied.
+        original_history = weather_history  # Keep reference for fallback
+        if last_watered:
             try:
-                last_calculated = datetime.fromisoformat(last_calculated_str)
-                # Only include weather entries after last calculation
+                last_watered_dt = datetime.fromisoformat(last_watered)
+                # Only include weather entries after last watering
                 filtered_history = [
                     e for e in weather_history
-                    if e.get("timestamp") and datetime.fromisoformat(e["timestamp"]) > last_calculated
+                    if e.get("timestamp") and datetime.fromisoformat(e["timestamp"]) > last_watered_dt
                 ]
-                # If no new data since last calculation, use empty list
-                # (weather will be re-applied on next weather refresh)
-                weather_history = filtered_history if filtered_history else []
+                # If we have filtered data, use it; otherwise fall back to
+                # all available history (e.g., after restart when last_watered
+                # is very recent but weather updates were missed)
+                if filtered_history:
+                    weather_history = filtered_history
+                else:
+                    _LOGGER.debug(
+                        "No new weather data since %s, using all %d entries",
+                        last_watered, len(original_history)
+                    )
+                    weather_history = original_history
             except (ValueError, TypeError):
                 pass  # Use full history if parsing fails
 
@@ -246,11 +256,11 @@ class IrrigationCalculator:
                 day_of_year=doy,
                 hours=hours_spanned,
             )
-        elif last_calculated_str:
-            # No new weather data but we know when last calc was — use actual elapsed time
+        elif last_watered:
+            # No new weather data but we know when last watered — use actual elapsed time
             try:
                 hours_spanned = max(
-                    (now - datetime.fromisoformat(last_calculated_str)).total_seconds() / 3600,
+                    (now - datetime.fromisoformat(last_watered)).total_seconds() / 3600,
                     0.0,
                 )
             except (ValueError, TypeError):
@@ -346,6 +356,13 @@ class IrrigationCalculator:
         )
         adjusted_deficit_inches = max(0.0, deficit_inches - forecast_duration_offset_inches)
 
+        # Pre-forecast duration (what irrigation would be without forecast reduction)
+        pre_forecast_duration = 0.0
+        if sprinkler_rate > 0:
+            pre_forecast_duration = (deficit_inches / sprinkler_rate) * 60
+        pre_forecast_duration *= duration_multiplier
+        pre_forecast_duration = min(pre_forecast_duration, max_duration)
+
         duration_minutes = 0.0
         if sprinkler_rate > 0:
             duration_minutes = (adjusted_deficit_inches / sprinkler_rate) * 60
@@ -414,7 +431,8 @@ class IrrigationCalculator:
                 forecast_duration_offset_inches, forecast_confidence,
                 avg_pop,
                 drainage_inches,
-                net_change_inches, net_change_pct, duration_minutes,
+                net_change_inches, net_change_pct,
+                pre_forecast_duration, duration_minutes,
                 sun_exposure, sun_mult, soil_type, plant_type, plant_mult,
                 hours_spanned, len(weather_history),
             ),
@@ -441,7 +459,8 @@ class IrrigationCalculator:
         effective_forecast, forecast_duration_offset, forecast_confidence,
         avg_pop,
         drainage, net_change, net_change_pct,
-        duration, sun_exposure, sun_mult, soil_type, plant_type,
+        pre_forecast_duration, duration,
+        sun_exposure, sun_mult, soil_type, plant_type,
         plant_mult, hours, data_points,
     ) -> str:
         """Build human-readable explanation of the calculation."""
@@ -466,8 +485,12 @@ class IrrigationCalculator:
         lines.append(f"Net change (bucket): {net_change:+.4f} inches ({net_change_pct:+.1f}%)")
         lines.append(f"Bucket: {old_bucket:.1f}% -> {new_bucket:.1f}%")
         lines.append("")
+        if pre_forecast_duration > 0:
+            lines.append(f"Irrigation need (before forecast): {pre_forecast_duration:.1f} minutes")
         if duration > 0:
             lines.append(f"IRRIGATION NEEDED: {duration:.1f} minutes")
+        elif pre_forecast_duration > 0:
+            lines.append(f"Irrigation reduced to 0 by forecast rain.")
         else:
             lines.append("No irrigation needed.")
 
