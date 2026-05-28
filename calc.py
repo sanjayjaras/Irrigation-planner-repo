@@ -410,6 +410,11 @@ class IrrigationCalculator:
             "bucket_percent": round(new_bucket, 1),
             "old_bucket_percent": round(old_bucket, 1),
             "duration_minutes": round(duration_minutes, 1),
+            "pre_forecast_duration_minutes": round(pre_forecast_duration, 1),
+            "forecast_duration_offset_minutes": round(
+                max(0.0, pre_forecast_duration - duration_minutes),
+                1,
+            ),
             "last_calculated": now.isoformat(),
             "hours_of_data": round(hours_spanned, 1),
 
