@@ -1,19 +1,46 @@
 calculate:
   name: Calculate All Zones
   description: Run irrigation calculation for all zones using collected weather data.
+  fields:
+    entry_id:
+      name: Config Entry ID
+      description: Optional. If provided, target only this irrigation_planner config entry.
+      required: false
+      selector:
+        text:
 
 refresh_weather:
   name: Refresh Weather Data
   description: Fetch latest weather data and forecast from OpenWeatherMap.
+  fields:
+    entry_id:
+      name: Config Entry ID
+      description: Optional. If provided, target only this irrigation_planner config entry.
+      required: false
+      selector:
+        text:
 
 mark_watered:
   name: Mark as Watered
-  description: Record watering now and set all zone buckets to 100%. This is auto-detected per zone when Rainbird switches finish.
+  description: Record watering now and set all zone buckets to 100%.
+  fields:
+    entry_id:
+      name: Config Entry ID
+      description: Optional. If provided, target only this irrigation_planner config entry.
+      required: false
+      selector:
+        text:
 
 reset_bucket:
   name: Reset Buckets
   description: Reset all zone buckets to a specified percentage.
   fields:
+    entry_id:
+      name: Config Entry ID
+      description: Optional. If provided, target only this irrigation_planner config entry.
+      required: false
+      selector:
+        text:
     value:
       name: Bucket Value
       description: The percentage to reset buckets to (0-100).

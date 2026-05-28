@@ -214,7 +214,7 @@ class IrrigationPlannerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Optional(
                     CONF_ZONE_SPRINKLER_RATE_IN_PER_HR,
                     default=DEFAULT_SPRINKLER_RATE_IN_PER_HR,
-                ): vol.Coerce(float),
+                ): vol.All(vol.Coerce(float), vol.Range(min=0.1, max=5.0)),
                 vol.Optional(
                     CONF_ZONE_RAINBIRD_ZONE,
                     default=0,
@@ -487,7 +487,7 @@ class IrrigationPlannerOptionsFlow(config_entries.OptionsFlow):
                 vol.Optional(
                     CONF_ZONE_SPRINKLER_RATE_IN_PER_HR,
                     default=defaults.get(CONF_ZONE_SPRINKLER_RATE_IN_PER_HR, DEFAULT_SPRINKLER_RATE_IN_PER_HR),
-                ): vol.Coerce(float),
+                ): vol.All(vol.Coerce(float), vol.Range(min=0.1, max=5.0)),
                 vol.Optional(
                     CONF_ZONE_RAINBIRD_ZONE,
                     default=defaults.get(CONF_ZONE_RAINBIRD_ZONE, 0),

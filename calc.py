@@ -35,6 +35,7 @@ from .const import (
     CONF_ZONE_MAX_DURATION_MINUTES,
     DEFAULT_DURATION_MULTIPLIER,
     DEFAULT_MAX_DURATION_MINUTES,
+    DEFAULT_SPRINKLER_RATE_IN_PER_HR,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -216,12 +217,25 @@ class IrrigationCalculator:
         sun_exposure = zone_config.get("sun_exposure", SUN_FULL)
         soil_type = zone_config.get("soil_type", SOIL_LOAM)
         plant_type = zone_config.get("plant_type", PLANT_GRASS)
-        sprinkler_rate = zone_config.get("sprinkler_rate_in_per_hr", 1.0)
-        max_duration = zone_config.get(CONF_ZONE_MAX_DURATION_MINUTES, DEFAULT_MAX_DURATION_MINUTES)
-        duration_multiplier = zone_config.get(CONF_ZONE_DURATION_MULTIPLIER, DEFAULT_DURATION_MULTIPLIER)
+        sprinkler_rate = float(zone_config.get("sprinkler_rate_in_per_hr", 1.0) or 0.0)
+        max_duration = max(
+            1,
+            int(zone_config.get(CONF_ZONE_MAX_DURATION_MINUTES, DEFAULT_MAX_DURATION_MINUTES) or DEFAULT_MAX_DURATION_MINUTES),
+        )
+        duration_multiplier = max(
+            0.0,
+            float(zone_config.get(CONF_ZONE_DURATION_MULTIPLIER, DEFAULT_DURATION_MULTIPLIER) or DEFAULT_DURATION_MULTIPLIER),
+        )
 
         # Current bucket
-        old_bucket = zone_data.get("bucket_percent", 0.0)
+        # When we filter weather from last_watered, we're recalculating the
+        # full moisture loss since watering.  The bucket was 100% at that
+        # moment, so we must start from 100% — not the already-reduced
+        # stored value which would compound losses across hourly calcs.
+        if last_watered and weather_history is not original_history:
+            old_bucket = BUCKET_MAX_PERCENT
+        else:
+            old_bucket = zone_data.get("bucket_percent", 0.0)
 
         # --- Calculate ET from weather history ---
         et_total_mm = 0.0
@@ -315,7 +329,17 @@ class IrrigationCalculator:
         # Derive bucket capacity from zone's max_duration and sprinkler_rate
         # so that 100% deficit = exactly max_duration minutes of watering
         # This makes proportional scaling intuitive: 50% deficit = 50% duration
-        bucket_capacity_inches = (max_duration / 60.0) * sprinkler_rate
+        if sprinkler_rate > 0:
+            bucket_rate = sprinkler_rate
+        else:
+            bucket_rate = DEFAULT_SPRINKLER_RATE_IN_PER_HR
+            _LOGGER.warning(
+                "Invalid sprinkler_rate %.3f for zone %s; using %.2f in/hr for bucket math",
+                sprinkler_rate,
+                zone_config.get("name", "unknown"),
+                bucket_rate,
+            )
+        bucket_capacity_inches = (max_duration / 60.0) * bucket_rate
 
         # --- Drainage ---
         # Drainage is a percentage of bucket lost per day, scaled by current level

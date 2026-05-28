@@ -63,6 +63,28 @@ class IrrigationPlannerStore:
 
     async def async_add_weather_data(self, entry: dict[str, Any]) -> None:
         """Add a weather data entry to history."""
+        timestamp = entry.get("timestamp")
+        source = entry.get("source")
+
+        # De-duplicate same source/timestamp entries (e.g., repeated manual refresh)
+        # by replacing the previous entry instead of appending duplicates.
+        if timestamp:
+            for idx in range(len(self._data["weather_history"]) - 1, -1, -1):
+                existing = self._data["weather_history"][idx]
+                if (
+                    existing.get("timestamp") == timestamp
+                    and existing.get("source") == source
+                ):
+                    self._data["weather_history"][idx] = entry
+                    self._data["last_weather_update"] = datetime.now().isoformat()
+                    await self.async_save()
+                    _LOGGER.debug(
+                        "Replaced weather entry for %s (%s)",
+                        timestamp,
+                        source,
+                    )
+                    return
+
         self._data["weather_history"].append(entry)
         self._data["last_weather_update"] = datetime.now().isoformat()
         await self.async_save()
@@ -150,6 +172,12 @@ class IrrigationPlannerStore:
         self._data["last_watered"] = datetime.now().isoformat()
         await self.async_save()
         _LOGGER.info("Recorded watering at %s", self._data["last_watered"])
+
+    async def async_clear_last_watered(self) -> None:
+        """Clear last watered timestamp (manual override baseline reset)."""
+        self._data["last_watered"] = None
+        await self.async_save()
+        _LOGGER.info("Cleared last_watered baseline")
 
     async def async_reset_zone_bucket(self, zone_id: str, value: float = 0.0) -> None:
         """Reset a zone's bucket to a specific percentage."""

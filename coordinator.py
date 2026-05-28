@@ -81,11 +81,15 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
         self._unsub_prune_time = None
         self._unsub_program_listener = None
 
-        self._calc_min_gap_seconds = 300
-
     async def async_setup(self) -> None:
         """Set up the coordinator: load data, schedule tasks."""
         await self.store.async_load()
+
+        debounce_minutes = self._config.get(
+            CONF_RAINBIRD_DEBOUNCE_MINUTES,
+            DEFAULT_RAINBIRD_DEBOUNCE_MINUTES,
+        )
+        self._calc_min_gap_seconds = max(0, int(debounce_minutes) * 60)
 
         # Schedule weather updates
         interval = self._config.get(
@@ -205,9 +209,14 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
             await self.store.async_add_weather_data(result["current"])
 
         # Update forecast (replace with latest)
+        # Avoid overlap double-counting by preferring hourly forecast
+        # for the near-term horizon we use in calculations.
         hourly = result.get("hourly_forecast", [])
         daily = result.get("daily_forecast", [])
-        all_forecast = hourly + daily
+        if hourly:
+            all_forecast = hourly
+        else:
+            all_forecast = daily
         if all_forecast:
             await self.store.async_set_forecast(all_forecast)
 
@@ -218,7 +227,7 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
             len(self.store.get_forecast(2)),
         )
 
-    async def async_calculate(self) -> None:
+    async def async_calculate(self, ignore_irrigation_window: bool = False) -> None:
         """Run irrigation calculation for all zones."""
         _LOGGER.info("Running irrigation calculation for all zones")
         zones = self._config.get(CONF_ZONES, [])
@@ -251,7 +260,7 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
         # through (start_time + program_duration + buffer).  We also
         # fall back to checking the program switch state in case the
         # start time or duration entities are unavailable.
-        if self._is_in_irrigation_window():
+        if not ignore_irrigation_window and self._is_in_irrigation_window():
             _LOGGER.info(
                 "Skipping calculation: inside Irrigation Controller watering window"
             )
@@ -261,35 +270,43 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
             zone_id = f"zone_{idx + 1}"
             zone_data = self.store.get_zone_data(zone_id)
 
-            result = self.calculator.calculate_zone(
-                zone_config=zone_config,
-                zone_data=zone_data,
-                weather_history=weather_history,
-                weather_forecast=weather_forecast,
-                rain_threshold_mm=rain_threshold_mm,
-                rain_light_effectiveness=rain_light_effectiveness,
-                forecast_confidence=forecast_confidence,
-                last_watered=last_watered,
-            )
+            try:
+                result = self.calculator.calculate_zone(
+                    zone_config=zone_config,
+                    zone_data=zone_data,
+                    weather_history=weather_history,
+                    weather_forecast=weather_forecast,
+                    rain_threshold_mm=rain_threshold_mm,
+                    rain_light_effectiveness=rain_light_effectiveness,
+                    forecast_confidence=forecast_confidence,
+                    last_watered=last_watered,
+                )
 
-            # Safety cooldown: do not water again too soon after last watering
-            if min_interval_hours > 0 and last_watered:
-                try:
-                    last_dt = datetime.fromisoformat(last_watered)
-                    hours_since = (datetime.now() - last_dt).total_seconds() / 3600
-                    if hours_since < min_interval_hours:
-                        result["duration_minutes"] = 0.0
-                        result["cooldown_active"] = True
-                        result["cooldown_remaining_hours"] = round(min_interval_hours - hours_since, 1)
-                        explanation = result.get("explanation", "")
-                        result["explanation"] = (
-                            explanation
-                            + f"\n\nCooldown active: next watering allowed in {result['cooldown_remaining_hours']}h"
-                        ).strip()
-                except (ValueError, TypeError):
-                    pass
+                # Always reset cooldown fields first so stale values
+                # don't persist when cooldown has expired.
+                result["cooldown_active"] = False
+                result["cooldown_remaining_hours"] = None
 
-            await self.store.async_update_zone(zone_id, result)
+                # Safety cooldown: do not water again too soon after last watering
+                if min_interval_hours > 0 and last_watered:
+                    try:
+                        last_dt = datetime.fromisoformat(last_watered)
+                        hours_since = (datetime.now() - last_dt).total_seconds() / 3600
+                        if hours_since < min_interval_hours:
+                            result["duration_minutes"] = 0.0
+                            result["cooldown_active"] = True
+                            result["cooldown_remaining_hours"] = round(min_interval_hours - hours_since, 1)
+                            explanation = result.get("explanation", "")
+                            result["explanation"] = (
+                                explanation
+                                + f"\n\nCooldown active: next watering allowed in {result['cooldown_remaining_hours']}h"
+                            ).strip()
+                    except (ValueError, TypeError):
+                        pass
+
+                await self.store.async_update_zone(zone_id, result)
+            except Exception:
+                _LOGGER.exception("Failed calculation for zone %s", zone_id)
 
         await self._async_update_data_from_store()
         _LOGGER.info("Calculation complete for %d zones", len(zones))
@@ -318,6 +335,10 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
             zone_id = f"zone_{idx + 1}"
             await self.store.async_reset_zone_bucket(zone_id, value)
 
+        # Manual reset is an explicit user override. Clear watering baseline
+        # so subsequent calculations honor the manually-set bucket state.
+        await self.store.async_clear_last_watered()
+
         await self._async_update_data_from_store()
         _LOGGER.info("All buckets reset to %.1f%%", value)
 
@@ -341,7 +362,7 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
             # Fetch fresh weather since updates were skipped during the
             # irrigation window, then calculate with the new baseline.
             await self.async_refresh_weather()
-            await self.async_calculate()
+            await self.async_calculate(ignore_irrigation_window=True)
 
     def _calculation_ran_recently(self, min_gap_seconds: int) -> bool:
         """Return True if a calculation ran recently enough to skip rerun."""
@@ -377,6 +398,12 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
         duration_entity = program_state.attributes.get("default_run_time")
 
         if not start_time_entity or not duration_entity:
+            if program_state.state == "on":
+                _LOGGER.debug(
+                    "Fallback: missing start_time/default_run_time attrs, program %s is on",
+                    self._IC_PROGRAM_ENTITY,
+                )
+                return True
             return False
 
         start_state = self.hass.states.get(start_time_entity)
