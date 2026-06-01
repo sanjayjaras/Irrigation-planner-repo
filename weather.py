@@ -75,7 +75,7 @@ class WeatherCollector:
             _LOGGER.error("Failed to fetch OWM data: %s", err)
             return {}
 
-        result = {"current": None, "hourly_forecast": [], "daily_forecast": []}
+        result = {"current": None, "hourly_history": [], "hourly_forecast": [], "daily_forecast": []}
 
         # Parse current weather
         if "current" in data:
@@ -100,7 +100,10 @@ class WeatherCollector:
                 WEATHER_SOURCE: "actual",
             }
 
-        # Parse hourly forecast (48 hours)
+        # Parse hourly data (48 hours)
+        # OWM hourly includes past hours (actual rain) and future hours (forecast).
+        # Split by current time: past -> history_actual, future -> forecast.
+        now_ts = datetime.now().timestamp()
         for h in data.get("hourly", []):
             rain_1h = 0.0
             if "rain" in h and "1h" in h["rain"]:
@@ -109,19 +112,35 @@ class WeatherCollector:
             if "snow" in h and "1h" in h["snow"]:
                 snow_1h = h["snow"]["1h"]
 
-            result["hourly_forecast"].append({
-                WEATHER_TEMPERATURE: h.get("temp"),
-                WEATHER_HUMIDITY: h.get("humidity"),
-                WEATHER_WIND_SPEED: h.get("wind_speed"),
-                WEATHER_PRESSURE: h.get("pressure"),
-                WEATHER_DEW_POINT: h.get("dew_point"),
-                WEATHER_PRECIP_FORECAST: rain_1h + snow_1h,
-                WEATHER_PRECIP_POP: h.get("pop", 1.0),
-                WEATHER_UV_INDEX: h.get("uvi"),
-                WEATHER_CLOUDS: h.get("clouds"),
-                WEATHER_TIMESTAMP: datetime.fromtimestamp(h["dt"]).isoformat(),
-                WEATHER_SOURCE: "forecast",
-            })
+            if h["dt"] <= now_ts:
+                # Past hour: treat as actual measured data
+                result["hourly_history"].append({
+                    WEATHER_TEMPERATURE: h.get("temp"),
+                    WEATHER_HUMIDITY: h.get("humidity"),
+                    WEATHER_WIND_SPEED: h.get("wind_speed"),
+                    WEATHER_PRESSURE: h.get("pressure"),
+                    WEATHER_DEW_POINT: h.get("dew_point"),
+                    WEATHER_PRECIP_ACTUAL: rain_1h + snow_1h,
+                    WEATHER_UV_INDEX: h.get("uvi"),
+                    WEATHER_CLOUDS: h.get("clouds"),
+                    WEATHER_TIMESTAMP: datetime.fromtimestamp(h["dt"]).isoformat(),
+                    WEATHER_SOURCE: "actual",
+                })
+            else:
+                # Future hour: forecast
+                result["hourly_forecast"].append({
+                    WEATHER_TEMPERATURE: h.get("temp"),
+                    WEATHER_HUMIDITY: h.get("humidity"),
+                    WEATHER_WIND_SPEED: h.get("wind_speed"),
+                    WEATHER_PRESSURE: h.get("pressure"),
+                    WEATHER_DEW_POINT: h.get("dew_point"),
+                    WEATHER_PRECIP_FORECAST: rain_1h + snow_1h,
+                    WEATHER_PRECIP_POP: h.get("pop", 1.0),
+                    WEATHER_UV_INDEX: h.get("uvi"),
+                    WEATHER_CLOUDS: h.get("clouds"),
+                    WEATHER_TIMESTAMP: datetime.fromtimestamp(h["dt"]).isoformat(),
+                    WEATHER_SOURCE: "forecast",
+                })
 
         # Parse daily forecast (8 days)
         for d in data.get("daily", []):
@@ -145,8 +164,9 @@ class WeatherCollector:
             })
 
         _LOGGER.debug(
-            "Fetched OWM data: current=%s, hourly=%d, daily=%d",
+            "Fetched OWM data: current=%s, hourly_history=%d, hourly_forecast=%d, daily=%d",
             result["current"] is not None,
+            len(result["hourly_history"]),
             len(result["hourly_forecast"]),
             len(result["daily_forecast"]),
         )

@@ -167,9 +167,19 @@ class IrrigationPlannerStore:
         await self.async_save()
         _LOGGER.debug("Updated zone %s: bucket=%.1f%%", zone_id, data.get("bucket_percent", 0))
 
-    async def async_record_watering(self) -> None:
-        """Record that watering just happened."""
-        self._data["last_watered"] = datetime.now().isoformat()
+    async def async_record_watering(self, watered_at: str | None = None) -> None:
+        """Record that watering happened, optionally at a custom timestamp."""
+        if watered_at:
+            # Normalize space-separated format from input_datetime to ISO format
+            ts = watered_at.replace(" ", "T")
+            try:
+                datetime.fromisoformat(ts)
+                self._data["last_watered"] = ts
+            except ValueError:
+                _LOGGER.warning("Invalid watered_at timestamp '%s', using now", watered_at)
+                self._data["last_watered"] = datetime.now().isoformat()
+        else:
+            self._data["last_watered"] = datetime.now().isoformat()
         await self.async_save()
         _LOGGER.info("Recorded watering at %s", self._data["last_watered"])
 

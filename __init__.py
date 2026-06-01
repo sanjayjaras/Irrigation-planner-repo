@@ -158,9 +158,10 @@ async def _async_register_services(
 
     async def handle_mark_watered(call: ServiceCall) -> None:
         """Handle mark watered service call."""
+        watered_at = call.data.get("watered_at")
         coordinators = _resolve_coordinators(call)
         for coordinator in coordinators:
-            await coordinator.async_mark_watered()
+            await coordinator.async_mark_watered(watered_at)
 
     if not hass.services.has_service(DOMAIN, "mark_watered"):
         hass.services.async_register(
@@ -169,6 +170,7 @@ async def _async_register_services(
             handle_mark_watered,
             schema=vol.Schema({
                 vol.Optional("entry_id"): cv.string,
+                vol.Optional("watered_at"): cv.string,
             }),
         )
 

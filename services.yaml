@@ -22,11 +22,17 @@ refresh_weather:
 
 mark_watered:
   name: Mark as Watered
-  description: Record watering now and set all zone buckets to 100%.
+  description: Record watering and set all zone buckets to 100%. Optionally specify a custom time.
   fields:
     entry_id:
       name: Config Entry ID
       description: Optional. If provided, target only this irrigation_planner config entry.
+      required: false
+      selector:
+        text:
+    watered_at:
+      name: Watered At
+      description: Optional ISO timestamp of when watering occurred (e.g. 2026-06-01T06:00:00). Defaults to now.
       required: false
       selector:
         text:

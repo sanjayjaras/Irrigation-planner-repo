@@ -204,7 +204,15 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
             _LOGGER.warning("No weather data received")
             return
 
-        # Store current observation as history
+        # Store hourly_history entries (past hours from OWM hourly array).
+        # These contain accurate per-hour rain data going back ~24h and are
+        # far more reliable than the single current.rain.1h snapshot, which
+        # can miss rain events that fell between polls.
+        hourly_history = result.get("hourly_history", [])
+        for entry in hourly_history:
+            await self.store.async_add_weather_data(entry)
+
+        # Also store current observation (fills the most-recent hour gap)
         if result.get("current"):
             await self.store.async_add_weather_data(result["current"])
 
@@ -222,7 +230,8 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
 
         await self._async_update_data_from_store()
         _LOGGER.info(
-            "Weather updated: %d history, %d forecast entries",
+            "Weather updated: %d hourly_history ingested, %d history total, %d forecast entries",
+            len(hourly_history),
             len(self.store.get_weather_history(2)),
             len(self.store.get_forecast(2)),
         )
@@ -311,9 +320,9 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
         await self._async_update_data_from_store()
         _LOGGER.info("Calculation complete for %d zones", len(zones))
 
-    async def async_mark_watered(self) -> None:
-        """Record that watering just happened and set all buckets to 100%."""
-        await self.store.async_record_watering()
+    async def async_mark_watered(self, watered_at: str | None = None) -> None:
+        """Record that watering happened and set all buckets to 100%."""
+        await self.store.async_record_watering(watered_at)
         zones = self._config.get(CONF_ZONES, [])
         for idx in range(len(zones)):
             zone_id = f"zone_{idx + 1}"
@@ -326,7 +335,7 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
                 "last_calculated": datetime.now().isoformat(),
             })
         await self._async_update_data_from_store()
-        _LOGGER.info("Watering recorded, all buckets set to 100%%")
+        _LOGGER.info("Watering recorded at %s, all buckets set to 100%%", watered_at or "now")
 
     async def async_reset_all_buckets(self, value: float = 0.0) -> None:
         """Reset all zone buckets."""
