@@ -206,15 +206,19 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
 
         # Store hourly_history entries (past hours from OWM hourly array).
         # These contain accurate per-hour rain data going back ~24h and are
-        # far more reliable than the single current.rain.1h snapshot, which
-        # can miss rain events that fell between polls.
+        # far more reliable than the single current.rain.1h snapshot.
+        # Do NOT also store current.rain.1h - it overlaps with the hourly
+        # entries and causes double-counting (different timestamps, same rain).
         hourly_history = result.get("hourly_history", [])
         for entry in hourly_history:
             await self.store.async_add_weather_data(entry)
 
-        # Also store current observation (fills the most-recent hour gap)
+        # Store current observation with rain zeroed out - we only want it
+        # for temperature/humidity/etc display, not for rain accumulation.
         if result.get("current"):
-            await self.store.async_add_weather_data(result["current"])
+            current_no_rain = dict(result["current"])
+            current_no_rain["precip_actual_mm"] = 0.0
+            await self.store.async_add_weather_data(current_no_rain)
 
         # Update forecast (replace with latest)
         # Avoid overlap double-counting by preferring hourly forecast
