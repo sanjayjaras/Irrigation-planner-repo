@@ -106,10 +106,10 @@ class IrrigationPlannerStore:
         current-poll entries (e.g. :32:09) for the same hour bucket to
         prevent double-counting rain when both types exist in storage.
         """
-        cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+        cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%S")
         recent = [
             e for e in self._data["weather_history"]
-            if e.get("timestamp", "") >= cutoff
+            if e.get("timestamp", "")[:19] >= cutoff
         ]
 
         # Dedup: keep one entry per hour bucket (YYYY-MM-DDTHH)
@@ -132,11 +132,11 @@ class IrrigationPlannerStore:
 
     def get_forecast(self, days: int = 2) -> list[dict[str, Any]]:
         """Get forecast for the next N days."""
-        now = datetime.now().isoformat()
-        cutoff = (datetime.now() + timedelta(days=days)).isoformat()
+        now = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+        cutoff = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%S")
         return [
             e for e in self._data["weather_forecast"]
-            if now <= e.get("timestamp", "") <= cutoff
+            if now <= e.get("timestamp", "")[:19] <= cutoff
         ]
 
     def get_accumulated_rain_actual(self, days: int = 2) -> float:
@@ -151,11 +151,11 @@ class IrrigationPlannerStore:
 
     async def async_prune_old_data(self, retention_days: int = 3) -> None:
         """Delete weather data older than retention_days."""
-        cutoff = (datetime.now() - timedelta(days=retention_days)).isoformat()
+        cutoff = (datetime.now() - timedelta(days=retention_days)).strftime("%Y-%m-%dT%H:%M:%S")
         before = len(self._data["weather_history"])
         self._data["weather_history"] = [
             e for e in self._data["weather_history"]
-            if e.get("timestamp", "") >= cutoff
+            if e.get("timestamp", "")[:19] >= cutoff
         ]
         after = len(self._data["weather_history"])
         if before != after:

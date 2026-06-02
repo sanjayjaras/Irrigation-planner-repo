@@ -361,7 +361,7 @@ class IrrigationCalculator:
                 zone_config.get("name", "unknown"),
                 bucket_rate,
             )
-        bucket_capacity_inches = (max_duration / 60.0) * bucket_rate
+        bucket_capacity_inches = max((max_duration / 60.0) * bucket_rate, 0.0001)
 
         # --- Drainage ---
         # Drainage is a percentage of bucket lost per day, scaled by current level
