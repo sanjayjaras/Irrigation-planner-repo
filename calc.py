@@ -190,6 +190,8 @@ class IrrigationCalculator:
 
         # Filter weather history to only include data since last watering.
         # This applies ET only for time periods after water was actually applied.
+        # last_watered_dt is hoisted so the hours_spanned block below can use it.
+        last_watered_dt = None
         original_history = weather_history  # Keep reference for fallback
         if last_watered:
             try:
@@ -199,17 +201,20 @@ class IrrigationCalculator:
                     e for e in weather_history
                     if e.get("timestamp") and datetime.fromisoformat(e["timestamp"]) > last_watered_dt
                 ]
-                # If we have filtered data, use it; otherwise fall back to
-                # all available history (e.g., after restart when last_watered
-                # is very recent but weather updates were missed)
                 if filtered_history:
                     weather_history = filtered_history
                 else:
+                    # No weather data yet after last watering (e.g. calculation
+                    # triggered immediately post-irrigation, or HA just restarted).
+                    # Use an empty list so the "elif last_watered" branch below
+                    # handles hours_spanned from elapsed time — do NOT fall back
+                    # to original_history, which would apply 2 days of ET against
+                    # a freshly-refilled 100% bucket.
                     _LOGGER.debug(
-                        "No new weather data since %s, using all %d entries",
-                        last_watered, len(original_history)
+                        "No new weather data since %s; using elapsed-time-only path",
+                        last_watered,
                     )
-                    weather_history = original_history
+                    weather_history = []
             except (ValueError, TypeError):
                 pass  # Use full history if parsing fails
 
@@ -248,16 +253,33 @@ class IrrigationCalculator:
             avg_dew_point = self._avg(weather_history, WEATHER_DEW_POINT, None)
             avg_clouds = self._avg(weather_history, WEATHER_CLOUDS, 50.0)
 
-            # Calculate hours spanned by data
+            # Calculate hours spanned by data.
+            # When last_watered_dt is known and filtered history is in use,
+            # extend the span back to the actual watering time so the gap
+            # between watering and the first OWM hourly entry (≤1 h) is included.
             timestamps = [
                 e.get("timestamp", "") for e in weather_history if e.get("timestamp")
             ]
+            use_watered_start = (
+                last_watered_dt is not None and weather_history is not original_history
+            )
             if len(timestamps) >= 2:
-                first = datetime.fromisoformat(min(timestamps))
-                last = datetime.fromisoformat(max(timestamps))
-                hours_spanned = max((last - first).total_seconds() / 3600, 1.0)
+                last_ts = datetime.fromisoformat(max(timestamps))
+                if use_watered_start:
+                    first_ts = last_watered_dt
+                else:
+                    first_ts = datetime.fromisoformat(min(timestamps))
+                hours_spanned = max((last_ts - first_ts).total_seconds() / 3600, 1.0)
+            elif len(timestamps) == 1:
+                single_ts = datetime.fromisoformat(timestamps[0])
+                if use_watered_start:
+                    hours_spanned = max(
+                        (single_ts - last_watered_dt).total_seconds() / 3600, 1.0
+                    )
+                else:
+                    hours_spanned = 1.0  # single data point, assume 1 hour
             else:
-                hours_spanned = 1.0  # single data point, assume 1 hour
+                hours_spanned = 1.0  # no timestamps in weather data
 
             et_total_mm = estimate_et_penman_simplified(
                 temp_c=avg_temp,
