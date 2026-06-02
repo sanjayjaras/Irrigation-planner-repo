@@ -100,12 +100,35 @@ class IrrigationPlannerStore:
         _LOGGER.debug("Updated forecast, %d entries", len(forecast))
 
     def get_weather_history(self, days: int = 2) -> list[dict[str, Any]]:
-        """Get weather history for the last N days."""
+        """Get weather history for the last N days, deduped to one entry per hour.
+
+        OWM hourly entries (timestamp ending :00:00) are preferred over
+        current-poll entries (e.g. :32:09) for the same hour bucket to
+        prevent double-counting rain when both types exist in storage.
+        """
         cutoff = (datetime.now() - timedelta(days=days)).isoformat()
-        return [
+        recent = [
             e for e in self._data["weather_history"]
             if e.get("timestamp", "") >= cutoff
         ]
+
+        # Dedup: keep one entry per hour bucket (YYYY-MM-DDTHH)
+        hour_buckets: dict[str, dict] = {}
+        for e in recent:
+            ts = e.get("timestamp", "")
+            bucket = ts[:13]
+            if bucket not in hour_buckets:
+                hour_buckets[bucket] = e
+            else:
+                # Prefer the exact :00:00 OWM hourly entry
+                existing_ts = hour_buckets[bucket].get("timestamp", "")
+                if existing_ts.endswith(":00:00") and not ts.endswith(":00:00"):
+                    pass  # keep existing
+                elif ts.endswith(":00:00") and not existing_ts.endswith(":00:00"):
+                    hour_buckets[bucket] = e  # prefer new :00:00 entry
+                # else keep whichever came first
+
+        return sorted(hour_buckets.values(), key=lambda e: e.get("timestamp", ""))
 
     def get_forecast(self, days: int = 2) -> list[dict[str, Any]]:
         """Get forecast for the next N days."""
