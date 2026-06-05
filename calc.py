@@ -223,14 +223,18 @@ class IrrigationCalculator:
         soil_type = zone_config.get("soil_type", SOIL_LOAM)
         plant_type = zone_config.get("plant_type", PLANT_GRASS)
         sprinkler_rate = float(zone_config.get("sprinkler_rate_in_per_hr", 1.0) or 0.0)
-        max_duration = max(
-            1,
-            int(zone_config.get(CONF_ZONE_MAX_DURATION_MINUTES, DEFAULT_MAX_DURATION_MINUTES) or DEFAULT_MAX_DURATION_MINUTES),
-        )
-        duration_multiplier = max(
-            0.0,
-            float(zone_config.get(CONF_ZONE_DURATION_MULTIPLIER, DEFAULT_DURATION_MULTIPLIER) or DEFAULT_DURATION_MULTIPLIER),
-        )
+        raw_max = zone_config.get(CONF_ZONE_MAX_DURATION_MINUTES)
+        if raw_max is None:
+            _LOGGER.warning(
+                "Zone '%s' missing max_duration_minutes; using default %d min — "
+                "edit zone config to set an explicit value",
+                zone_config.get("name", "unknown"),
+                DEFAULT_MAX_DURATION_MINUTES,
+            )
+        max_duration = max(1, int(raw_max or DEFAULT_MAX_DURATION_MINUTES))
+
+        raw_multiplier = zone_config.get(CONF_ZONE_DURATION_MULTIPLIER)
+        duration_multiplier = max(0.0, float(raw_multiplier or DEFAULT_DURATION_MULTIPLIER))
 
         # Current bucket
         # When we filter weather from last_watered, we're recalculating the
