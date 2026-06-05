@@ -53,6 +53,7 @@ async def async_setup_entry(
 
     # Weather status sensor
     entities.append(WeatherStatusSensor(coordinator, config_entry))
+    entities.append(IrrigationLogSensor(coordinator, config_entry))
 
     async_add_entities(entities)
 
@@ -278,3 +279,36 @@ class WeatherStatusSensor(CoordinatorEntity, SensorEntity):
     @property
     def icon(self) -> str:
         return "mdi:weather-partly-cloudy"
+
+
+class IrrigationLogSensor(CoordinatorEntity, SensorEntity):
+    """Sensor exposing recent irrigation log entries for dashboard display."""
+
+    _attr_icon = "mdi:text-box-outline"
+    _attr_should_poll = False
+
+    def __init__(self, coordinator, config_entry):
+        """Initialize."""
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{config_entry.entry_id}_log"
+        self._attr_name = "Irrigation Planner Log"
+
+    @property
+    def native_value(self) -> str | None:
+        """Return count of buffered log entries."""
+        if self.coordinator.data is None:
+            return None
+        logs = self.coordinator.data.get("recent_logs", [])
+        return f"{len(logs)} entries"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return log entries and file path."""
+        if self.coordinator.data is None:
+            return {}
+        logs = self.coordinator.data.get("recent_logs", [])
+        return {
+            "log_entries": logs,
+            "log_count": len(logs),
+            "log_file": self.coordinator.data.get("log_file_path"),
+        }

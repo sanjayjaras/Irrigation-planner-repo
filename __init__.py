@@ -6,6 +6,7 @@ and zone characteristics with full transparency.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 import voluptuous as vol
@@ -22,6 +23,7 @@ from .const import (
     SERVICE_RESET_BUCKET,
 )
 from .coordinator import IrrigationPlannerCoordinator
+from .log_handler import IrrigationLogBuffer, attach_log_handler, detach_log_handler
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -36,7 +38,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Irrigation Planner from a config entry."""
     hass.data.setdefault(DOMAIN, {})
 
-    coordinator = IrrigationPlannerCoordinator(hass, entry)
+    # Set up dedicated log handler (file + in-memory buffer)
+    log_dir = os.path.join(hass.config.config_dir, "logs")
+    await hass.async_add_executor_job(lambda: os.makedirs(log_dir, exist_ok=True))
+    log_file = os.path.join(log_dir, "irrigation_planner.log")
+    log_buffer = IrrigationLogBuffer(log_file)
+    # Seed buffer from previous log file so history survives restarts
+    await hass.async_add_executor_job(log_buffer.prepopulate_from_file)
+    attach_log_handler(log_buffer)
+
+    coordinator = IrrigationPlannerCoordinator(hass, entry, log_buffer)
     await coordinator.async_setup()
 
     unsub_update_listener = entry.add_update_listener(_async_entry_updated)
@@ -44,6 +55,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data[DOMAIN][entry.entry_id] = {
         "coordinator": coordinator,
         "unsub_update_listener": unsub_update_listener,
+        "log_buffer": log_buffer,
     }
 
     # Set up platforms
@@ -68,6 +80,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 unsub_update_listener()
             coordinator = data["coordinator"]
             await coordinator.async_shutdown()
+            log_buffer = data.get("log_buffer")
+            if log_buffer:
+                detach_log_handler(log_buffer)
+                log_buffer.close()
 
         if not hass.data[DOMAIN]:
             _async_unregister_services(hass)

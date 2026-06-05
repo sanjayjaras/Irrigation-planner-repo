@@ -15,6 +15,7 @@ from homeassistant.helpers.event import (
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .calc import IrrigationCalculator
+from .log_handler import IrrigationLogBuffer
 from .const import (
     DOMAIN,
     CONF_CALC_TIME,
@@ -53,6 +54,7 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
         self,
         hass: HomeAssistant,
         config_entry: ConfigEntry,
+        log_buffer: IrrigationLogBuffer | None = None,
     ) -> None:
         """Initialize coordinator."""
         super().__init__(
@@ -63,6 +65,7 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
         )
         self._config_entry = config_entry
         self._config = config_entry.data
+        self._log_buffer = log_buffer
 
         lat = self._config.get(CONF_LATITUDE, hass.config.latitude)
         lon = self._config.get(CONF_LONGITUDE, hass.config.longitude)
@@ -496,6 +499,8 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
             except (ValueError, TypeError):
                 pass
 
+        recent_logs = self._log_buffer.get_recent_logs() if self._log_buffer else []
+
         self.async_set_updated_data({
             "zones": zones_data,
             "last_weather_update": self.store.data.get("last_weather_update"),
@@ -538,6 +543,8 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
             "current_humidity": current_humidity,
             "last_watered": last_watered,
             "hours_since_watering": hours_since_watering,
+            "recent_logs": recent_logs,
+            "log_file_path": self._log_buffer.log_file_path if self._log_buffer else None,
         })
 
     async def _async_update_data(self) -> dict[str, Any]:
