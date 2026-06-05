@@ -38,6 +38,7 @@ class IrrigationPlannerStore:
                 "last_weather_update": None,
                 "last_calculation": None,
                 "last_watered": None,
+                "backfilled_dates": [],
             }
         else:
             self._data = stored
@@ -48,6 +49,7 @@ class IrrigationPlannerStore:
             self._data.setdefault("last_weather_update", None)
             self._data.setdefault("last_calculation", None)
             self._data.setdefault("last_watered", None)
+            self._data.setdefault("backfilled_dates", [])
         return self._data
 
     async def async_save(self) -> None:
@@ -92,6 +94,45 @@ class IrrigationPlannerStore:
             "Added weather entry, total history: %d",
             len(self._data["weather_history"]),
         )
+
+    def get_backfilled_dates(self) -> set[str]:
+        """Return the set of dates already fetched via OWM timemachine."""
+        return set(self._data.get("backfilled_dates", []))
+
+    async def async_mark_date_backfilled(self, date_str: str) -> None:
+        """Record that a date has been backfilled so it won't be fetched again."""
+        backfilled = self.get_backfilled_dates()
+        backfilled.add(date_str)
+        self._data["backfilled_dates"] = sorted(backfilled)
+        await self.async_save()
+
+    async def async_add_weather_data_batch(self, entries: list[dict[str, Any]]) -> None:
+        """Add multiple weather entries with a single save.
+
+        Uses the same dedup logic as async_add_weather_data but avoids
+        writing the storage file once per entry.
+        """
+        for entry in entries:
+            timestamp = entry.get("timestamp")
+            source = entry.get("source")
+            replaced = False
+            if timestamp:
+                for idx in range(len(self._data["weather_history"]) - 1, -1, -1):
+                    existing = self._data["weather_history"][idx]
+                    if (
+                        existing.get("timestamp") == timestamp
+                        and existing.get("source") == source
+                    ):
+                        self._data["weather_history"][idx] = entry
+                        replaced = True
+                        break
+            if not replaced:
+                self._data["weather_history"].append(entry)
+
+        if entries:
+            self._data["last_weather_update"] = datetime.now().isoformat()
+            await self.async_save()
+            _LOGGER.debug("Batch-added %d weather entries", len(entries))
 
     async def async_set_forecast(self, forecast: list[dict[str, Any]]) -> None:
         """Replace forecast data."""
@@ -152,12 +193,22 @@ class IrrigationPlannerStore:
     async def async_prune_old_data(self, retention_days: int = 3) -> None:
         """Delete weather data older than retention_days."""
         cutoff = (datetime.now() - timedelta(days=retention_days)).strftime("%Y-%m-%dT%H:%M:%S")
+        cutoff_date = cutoff[:10]  # YYYY-MM-DD for backfilled_dates comparison
+
         before = len(self._data["weather_history"])
         self._data["weather_history"] = [
             e for e in self._data["weather_history"]
             if e.get("timestamp", "")[:19] >= cutoff
         ]
         after = len(self._data["weather_history"])
+
+        # Prune backfilled_dates in sync so pruned dates can be re-fetched
+        # if last_watered is ever set to a date that falls in their range again.
+        self._data["backfilled_dates"] = [
+            d for d in self._data.get("backfilled_dates", [])
+            if d >= cutoff_date
+        ]
+
         if before != after:
             _LOGGER.info(
                 "Pruned weather history: %d -> %d entries (retention: %d days)",
@@ -181,13 +232,21 @@ class IrrigationPlannerStore:
             "factors": {},
         })
 
-    async def async_update_zone(self, zone_id: str, data: dict[str, Any]) -> None:
-        """Update stored data for a zone."""
+    async def async_update_zone(
+        self, zone_id: str, data: dict[str, Any], save: bool = True
+    ) -> None:
+        """Update stored data for a zone.
+
+        Pass save=False when updating multiple zones in a loop to avoid
+        writing the full JSON file once per zone; call async_save() manually
+        after the loop.
+        """
         if zone_id not in self._data["zones"]:
             self._data["zones"][zone_id] = {}
         self._data["zones"][zone_id].update(data)
         self._data["last_calculation"] = datetime.now().isoformat()
-        await self.async_save()
+        if save:
+            await self.async_save()
         _LOGGER.debug("Updated zone %s: bucket=%.1f%%", zone_id, data.get("bucket_percent", 0))
 
     async def async_record_watering(self, watered_at: str | None = None) -> None:

@@ -243,6 +243,61 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
             len(self.store.get_forecast(2)),
         )
 
+        # Fill gaps for days beyond the 48-hour OWM hourly window using timemachine
+        await self.async_backfill_history()
+
+    async def async_backfill_history(self) -> None:
+        """Fetch OWM timemachine data for days beyond the 48-hour hourly window.
+
+        OWM's One Call hourly array only goes back ~48 hours.  Any rain that
+        fell between last_watered and that 48-hour boundary shows up as 0 in
+        stored 'current' observation entries.  Timemachine fills those gaps so
+        rain accumulation since last watering is accurate.
+
+        Each date is fetched at most once (tracked in store.backfilled_dates).
+        """
+        retention = self._config.get(CONF_DATA_RETENTION_DAYS, DEFAULT_DATA_RETENTION_DAYS)
+        last_watered = self.store.data.get("last_watered")
+
+        # Determine the oldest date we care about
+        if last_watered:
+            try:
+                start_date = datetime.fromisoformat(last_watered).date()
+            except (ValueError, TypeError):
+                start_date = (datetime.now() - timedelta(days=retention)).date()
+        else:
+            start_date = (datetime.now() - timedelta(days=retention)).date()
+
+        # OWM hourly history reliably covers the past 48 h; timemachine fills older days
+        owm_cutoff_date = (datetime.now() - timedelta(hours=48)).date()
+
+        if start_date >= owm_cutoff_date:
+            return  # Everything is within the OWM hourly window — nothing to backfill
+
+        backfilled = self.store.get_backfilled_dates()
+        current_date = start_date
+        while current_date < owm_cutoff_date:
+            date_str = current_date.isoformat()
+            if date_str not in backfilled:
+                try:
+                    entries = await self.weather.async_fetch_history(
+                        datetime.combine(current_date, datetime.min.time())
+                    )
+                    if entries:
+                        await self.store.async_add_weather_data_batch(entries)
+                        await self.store.async_mark_date_backfilled(date_str)
+                        _LOGGER.info(
+                            "Backfilled %d history entries for %s via OWM timemachine",
+                            len(entries),
+                            date_str,
+                        )
+                    else:
+                        # Mark as backfilled even with no data to avoid repeated calls
+                        await self.store.async_mark_date_backfilled(date_str)
+                except Exception:
+                    _LOGGER.exception("Failed to backfill weather history for %s", date_str)
+            current_date += timedelta(days=1)
+
     async def async_calculate(self, ignore_irrigation_window: bool = False) -> None:
         """Run irrigation calculation for all zones."""
         _LOGGER.info("Running irrigation calculation for all zones")
@@ -252,7 +307,11 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
             DEFAULT_MIN_WATERING_INTERVAL_HOURS,
         )
 
-        weather_history = self.store.get_weather_history(days=2)
+        # Use the full retention window so ET and rain since last_watered are
+        # fully captured — a 2-day hardcoded window would miss data when the
+        # inter-watering interval is longer than 2 days.
+        retention = self._config.get(CONF_DATA_RETENTION_DAYS, DEFAULT_DATA_RETENTION_DAYS)
+        weather_history = self.store.get_weather_history(days=retention)
         weather_forecast = self.store.get_forecast(days=2)
         last_watered = self.store.data.get("last_watered")
 
@@ -320,10 +379,12 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
                     except (ValueError, TypeError):
                         pass
 
-                await self.store.async_update_zone(zone_id, result)
+                await self.store.async_update_zone(zone_id, result, save=False)
             except Exception:
                 _LOGGER.exception("Failed calculation for zone %s", zone_id)
 
+        # Single save after all zones are updated instead of one per zone
+        await self.store.async_save()
         await self._async_update_data_from_store()
         _LOGGER.info("Calculation complete for %d zones", len(zones))
 

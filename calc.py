@@ -186,7 +186,6 @@ class IrrigationCalculator:
             Dict with calculation results and factor breakdown.
         """
         now = datetime.now()
-        doy = now.timetuple().tm_yday
 
         # Filter weather history to only include data since last watering.
         # This applies ET only for time periods after water was actually applied.
@@ -250,52 +249,66 @@ class IrrigationCalculator:
         et_total_mm = 0.0
         hours_spanned = 0.0
         if weather_history:
-            avg_temp = self._avg(weather_history, WEATHER_TEMPERATURE, 20.0)
-            avg_humidity = self._avg(weather_history, WEATHER_HUMIDITY, 50.0)
-            avg_wind = self._avg(weather_history, WEATHER_WIND_SPEED, 2.0)
-            avg_pressure = self._avg(weather_history, WEATHER_PRESSURE, 1013.0)
-            avg_dew_point = self._avg(weather_history, WEATHER_DEW_POINT, None)
-            avg_clouds = self._avg(weather_history, WEATHER_CLOUDS, 50.0)
-
-            # Calculate hours spanned by data.
-            # When last_watered_dt is known and filtered history is in use,
-            # extend the span back to the actual watering time so the gap
-            # between watering and the first OWM hourly entry (≤1 h) is included.
-            timestamps = [
-                e.get("timestamp", "") for e in weather_history if e.get("timestamp")
-            ]
-            use_watered_start = (
-                last_watered_dt is not None and weather_history is not original_history
+            # Sort chronologically; drop entries without timestamps.
+            sorted_history = sorted(
+                [e for e in weather_history if e.get("timestamp")],
+                key=lambda e: e["timestamp"],
             )
-            if len(timestamps) >= 2:
-                last_ts = datetime.fromisoformat(max(timestamps))
-                if use_watered_start:
-                    first_ts = last_watered_dt
-                else:
-                    first_ts = datetime.fromisoformat(min(timestamps))
-                hours_spanned = max((last_ts - first_ts).total_seconds() / 3600, 1.0)
-            elif len(timestamps) == 1:
-                single_ts = datetime.fromisoformat(timestamps[0])
-                if use_watered_start:
-                    hours_spanned = max(
-                        (single_ts - last_watered_dt).total_seconds() / 3600, 1.0
+
+            if sorted_history:
+                use_watered_start = (
+                    last_watered_dt is not None and weather_history is not original_history
+                )
+                last_ts = datetime.fromisoformat(sorted_history[-1]["timestamp"])
+                span_start = last_watered_dt if use_watered_start else datetime.fromisoformat(sorted_history[0]["timestamp"])
+                hours_spanned = max((last_ts - span_start).total_seconds() / 3600, 1.0)
+
+                # Per-entry ET: compute ET for each entry's actual conditions and
+                # time interval instead of one averaged value for the whole period.
+                # This properly weights hot midday hours vs cool overnight hours.
+                # Period averages serve as fallbacks for entries missing a field.
+                avg_temp = self._avg(sorted_history, WEATHER_TEMPERATURE, 20.0)
+                avg_humidity = self._avg(sorted_history, WEATHER_HUMIDITY, 50.0)
+                avg_wind = self._avg(sorted_history, WEATHER_WIND_SPEED, 2.0)
+                avg_pressure = self._avg(sorted_history, WEATHER_PRESSURE, 1013.0)
+                avg_clouds = self._avg(sorted_history, WEATHER_CLOUDS, 50.0)
+
+                for i, entry in enumerate(sorted_history):
+                    curr_ts = datetime.fromisoformat(entry["timestamp"])
+
+                    if i == 0:
+                        interval_hours = (
+                            (curr_ts - last_watered_dt).total_seconds() / 3600
+                            if use_watered_start else 1.0
+                        )
+                    else:
+                        prev_ts = datetime.fromisoformat(sorted_history[i - 1]["timestamp"])
+                        interval_hours = (curr_ts - prev_ts).total_seconds() / 3600
+
+                    interval_hours = max(interval_hours, 0.0)
+                    if interval_hours < 0.05:  # skip near-duplicate timestamps
+                        continue
+
+                    t = entry.get(WEATHER_TEMPERATURE)
+                    h = entry.get(WEATHER_HUMIDITY)
+                    w = entry.get(WEATHER_WIND_SPEED)
+                    p = entry.get(WEATHER_PRESSURE)
+                    c = entry.get(WEATHER_CLOUDS)
+
+                    et_total_mm += estimate_et_penman_simplified(
+                        temp_c=t if t is not None else avg_temp,
+                        humidity=h if h is not None else avg_humidity,
+                        wind_speed_ms=w if w is not None else avg_wind,
+                        pressure_hpa=p if p is not None else avg_pressure,
+                        dew_point_c=entry.get(WEATHER_DEW_POINT),
+                        clouds_pct=c if c is not None else avg_clouds,
+                        latitude_deg=self._lat,
+                        day_of_year=curr_ts.timetuple().tm_yday,
+                        hours=interval_hours,
                     )
-                else:
-                    hours_spanned = 1.0  # single data point, assume 1 hour
             else:
-                hours_spanned = 1.0  # no timestamps in weather data
+                hours_spanned = 1.0
 
-            et_total_mm = estimate_et_penman_simplified(
-                temp_c=avg_temp,
-                humidity=avg_humidity,
-                wind_speed_ms=avg_wind,
-                pressure_hpa=avg_pressure,
-                dew_point_c=avg_dew_point,
-                clouds_pct=avg_clouds,
-                latitude_deg=self._lat,
-                day_of_year=doy,
-                hours=hours_spanned,
-            )
         elif last_watered:
             # No new weather data but we know when last watered — use actual elapsed time
             try:
@@ -529,7 +542,7 @@ class IrrigationCalculator:
         lines.append(f"  Drainage ({soil_type} soil): -{drainage:.4f} inches")
         lines.append("")
         lines.append("Water Gain (bucket):")
-        lines.append(f"  Actual rain (2 days): +{rain_actual:.4f} inches ({rain_actual * INCHES_TO_MM:.2f} mm)")
+        lines.append(f"  Actual rain (since last watered): +{rain_actual:.4f} inches ({rain_actual * INCHES_TO_MM:.2f} mm)")
         lines.append("")
         lines.append("Forecast Adjustment (duration only):")
         lines.append(f"  Forecast rain (2 days): +{rain_forecast_raw:.4f} inches ({rain_forecast_raw * INCHES_TO_MM:.2f} mm) raw")

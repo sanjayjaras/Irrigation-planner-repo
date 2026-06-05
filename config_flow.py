@@ -32,6 +32,9 @@ from .const import (
     CONF_ZONE_RAINBIRD_ZONE,
     CONF_ZONE_DURATION_MULTIPLIER,
     CONF_ZONE_MAX_DURATION_MINUTES,
+    CONF_RAIN_THRESHOLD_MM,
+    CONF_RAIN_LIGHT_EFFECTIVENESS,
+    CONF_FORECAST_CONFIDENCE,
     SUN_EXPOSURE_OPTIONS,
     SOIL_TYPE_OPTIONS,
     PLANT_TYPE_OPTIONS,
@@ -41,6 +44,9 @@ from .const import (
     DEFAULT_RAINBIRD_DEBOUNCE_MINUTES,
     DEFAULT_MIN_WATERING_INTERVAL_HOURS,
     DEFAULT_AUTO_CALCULATE_ON_WEATHER_UPDATE,
+    DEFAULT_RAIN_THRESHOLD_MM,
+    DEFAULT_RAIN_LIGHT_EFFECTIVENESS,
+    DEFAULT_FORECAST_CONFIDENCE,
     DEFAULT_AREA_SQFT,
     DEFAULT_SPRINKLER_RATE_IN_PER_HR,
     DEFAULT_DURATION_MULTIPLIER,
@@ -127,6 +133,15 @@ class IrrigationPlannerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 CONF_AUTO_CALCULATE_ON_WEATHER_UPDATE: user_input.get(
                     CONF_AUTO_CALCULATE_ON_WEATHER_UPDATE, DEFAULT_AUTO_CALCULATE_ON_WEATHER_UPDATE
                 ),
+                CONF_RAIN_THRESHOLD_MM: user_input.get(
+                    CONF_RAIN_THRESHOLD_MM, DEFAULT_RAIN_THRESHOLD_MM
+                ),
+                CONF_RAIN_LIGHT_EFFECTIVENESS: user_input.get(
+                    CONF_RAIN_LIGHT_EFFECTIVENESS, DEFAULT_RAIN_LIGHT_EFFECTIVENESS
+                ),
+                CONF_FORECAST_CONFIDENCE: user_input.get(
+                    CONF_FORECAST_CONFIDENCE, DEFAULT_FORECAST_CONFIDENCE
+                ),
             })
             return await self.async_step_zones()
 
@@ -157,6 +172,18 @@ class IrrigationPlannerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_AUTO_CALCULATE_ON_WEATHER_UPDATE,
                     default=DEFAULT_AUTO_CALCULATE_ON_WEATHER_UPDATE,
                 ): bool,
+                vol.Optional(
+                    CONF_RAIN_THRESHOLD_MM,
+                    default=DEFAULT_RAIN_THRESHOLD_MM,
+                ): vol.All(vol.Coerce(float), vol.Range(min=0, max=25)),
+                vol.Optional(
+                    CONF_RAIN_LIGHT_EFFECTIVENESS,
+                    default=DEFAULT_RAIN_LIGHT_EFFECTIVENESS,
+                ): vol.All(vol.Coerce(int), vol.Range(min=0, max=100)),
+                vol.Optional(
+                    CONF_FORECAST_CONFIDENCE,
+                    default=DEFAULT_FORECAST_CONFIDENCE,
+                ): vol.All(vol.Coerce(int), vol.Range(min=0, max=100)),
             }),
         )
 
@@ -307,6 +334,15 @@ class IrrigationPlannerOptionsFlow(config_entries.OptionsFlow):
                 CONF_AUTO_CALCULATE_ON_WEATHER_UPDATE,
                 DEFAULT_AUTO_CALCULATE_ON_WEATHER_UPDATE,
             )
+            self._updated_data[CONF_RAIN_THRESHOLD_MM] = user_input.get(
+                CONF_RAIN_THRESHOLD_MM, DEFAULT_RAIN_THRESHOLD_MM
+            )
+            self._updated_data[CONF_RAIN_LIGHT_EFFECTIVENESS] = user_input.get(
+                CONF_RAIN_LIGHT_EFFECTIVENESS, DEFAULT_RAIN_LIGHT_EFFECTIVENESS
+            )
+            self._updated_data[CONF_FORECAST_CONFIDENCE] = user_input.get(
+                CONF_FORECAST_CONFIDENCE, DEFAULT_FORECAST_CONFIDENCE
+            )
             self.hass.config_entries.async_update_entry(
                 self._config_entry, data=self._updated_data
             )
@@ -343,6 +379,18 @@ class IrrigationPlannerOptionsFlow(config_entries.OptionsFlow):
                         DEFAULT_AUTO_CALCULATE_ON_WEATHER_UPDATE,
                     ),
                 ): bool,
+                vol.Optional(
+                    CONF_RAIN_THRESHOLD_MM,
+                    default=current.get(CONF_RAIN_THRESHOLD_MM, DEFAULT_RAIN_THRESHOLD_MM),
+                ): vol.All(vol.Coerce(float), vol.Range(min=0, max=25)),
+                vol.Optional(
+                    CONF_RAIN_LIGHT_EFFECTIVENESS,
+                    default=current.get(CONF_RAIN_LIGHT_EFFECTIVENESS, DEFAULT_RAIN_LIGHT_EFFECTIVENESS),
+                ): vol.All(vol.Coerce(int), vol.Range(min=0, max=100)),
+                vol.Optional(
+                    CONF_FORECAST_CONFIDENCE,
+                    default=current.get(CONF_FORECAST_CONFIDENCE, DEFAULT_FORECAST_CONFIDENCE),
+                ): vol.All(vol.Coerce(int), vol.Range(min=0, max=100)),
             }),
         )
 
