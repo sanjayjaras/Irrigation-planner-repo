@@ -146,11 +146,19 @@ class IrrigationPlannerStore:
         OWM hourly entries (timestamp ending :00:00) are preferred over
         current-poll entries (e.g. :32:09) for the same hour bucket to
         prevent double-counting rain when both types exist in storage.
+
+        Future-timestamped entries (including old UTC-aware NWS entries whose
+        string representation sorts after current local-naive timestamps) are
+        excluded to prevent stale data from contaminating history[-1].
         """
         cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%S")
+        # Allow a 2-hour future window for minor clock skew, but exclude
+        # anything further ahead (e.g. old UTC timestamps that appear as
+        # future dates when compared to local-naive timestamps).
+        future_cutoff = (datetime.now() + timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%S")
         recent = [
             e for e in self._data["weather_history"]
-            if e.get("timestamp", "")[:19] >= cutoff
+            if cutoff <= e.get("timestamp", "")[:19] <= future_cutoff
         ]
 
         # Dedup: keep one entry per hour bucket (YYYY-MM-DDTHH)
@@ -195,10 +203,11 @@ class IrrigationPlannerStore:
         cutoff = (datetime.now() - timedelta(days=retention_days)).strftime("%Y-%m-%dT%H:%M:%S")
         cutoff_date = cutoff[:10]  # YYYY-MM-DD for backfilled_dates comparison
 
+        future_cutoff = (datetime.now() + timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%S")
         before = len(self._data["weather_history"])
         self._data["weather_history"] = [
             e for e in self._data["weather_history"]
-            if e.get("timestamp", "")[:19] >= cutoff
+            if cutoff <= e.get("timestamp", "")[:19] <= future_cutoff
         ]
         after = len(self._data["weather_history"])
 

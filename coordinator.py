@@ -222,7 +222,28 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
         # :00:00 OWM model entry over the actual current-observation timestamp.
         # Using result["current"] directly avoids showing the model forecast
         # value instead of the true observed reading.
+        # Resolve the best available "current" observation.
+        # OWM One Call 3.0 sometimes omits the separate "current" block;
+        # fall back to the most recent hourly history entry in that case
+        # (OWM hourly starts at the current hour, so the first past entry is
+        # the current-hour analyzed value — a good temperature proxy).
         current_obs = result.get("current")
+        if not current_obs:
+            hourly_hist = result.get("hourly_history", [])
+            if hourly_hist:
+                current_obs = hourly_hist[-1]
+                _LOGGER.debug(
+                    "No 'current' block from weather service; "
+                    "using most recent hourly entry (%s) for current conditions",
+                    current_obs.get("timestamp"),
+                )
+            else:
+                _LOGGER.warning(
+                    "Weather fetch returned no 'current' observation and no "
+                    "hourly history; result keys: %s",
+                    list(result.keys()),
+                )
+
         if current_obs:
             self._current_conditions = {
                 "temperature": current_obs.get("temperature"),
@@ -232,7 +253,14 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
                 "pressure": current_obs.get("pressure"),
                 "uv_index": current_obs.get("uv_index"),
                 "clouds": current_obs.get("clouds"),
+                "observed_at": current_obs.get("timestamp"),
             }
+            _LOGGER.info(
+                "Current conditions: temp=%.1f°C, humidity=%s%%, observed_at=%s",
+                self._current_conditions.get("temperature") or 0,
+                self._current_conditions.get("humidity"),
+                self._current_conditions.get("observed_at"),
+            )
 
         # Store hourly_history entries (past hours from the weather service).
         # These contain accurate per-hour rain data and are more reliable than
@@ -596,6 +624,8 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
         current_uv_index = self._current_conditions.get("uv_index")
         current_clouds = self._current_conditions.get("clouds")
 
+        conditions_source = "live"
+        conditions_observed_at = self._current_conditions.get("observed_at")
         if current_temp is None and history:
             latest = history[-1]
             current_temp = latest.get("temperature")
@@ -605,6 +635,12 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
             current_pressure = latest.get("pressure")
             current_uv_index = latest.get("uv_index")
             current_clouds = latest.get("clouds")
+            conditions_source = "history_fallback"
+            conditions_observed_at = latest.get("timestamp")
+            _LOGGER.debug(
+                "Using history fallback for current conditions: temp=%s°C from %s",
+                current_temp, conditions_observed_at,
+            )
 
         # Calculate hours since last watering
         last_watered = self.store.data.get("last_watered")
@@ -664,6 +700,8 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
             "current_pressure_hpa": current_pressure,
             "current_uv_index": current_uv_index,
             "current_clouds_pct": current_clouds,
+            "conditions_source": conditions_source,
+            "conditions_observed_at": conditions_observed_at,
             "last_watered": last_watered,
             "hours_since_watering": hours_since_watering,
             "recent_logs": recent_logs,

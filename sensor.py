@@ -272,6 +272,8 @@ class WeatherStatusSensor(CoordinatorEntity, SensorEntity):
             "current_pressure_hpa": self.coordinator.data.get("current_pressure_hpa"),
             "current_uv_index": self.coordinator.data.get("current_uv_index"),
             "current_clouds_pct": self.coordinator.data.get("current_clouds_pct"),
+            "conditions_source": self.coordinator.data.get("conditions_source"),
+            "conditions_observed_at": self.coordinator.data.get("conditions_observed_at"),
             "history_entries": self.coordinator.data.get("history_entries", 0),
             "forecast_entries": self.coordinator.data.get("forecast_entries", 0),
             "rain_actual_2d_mm": self.coordinator.data.get("rain_actual_2d_mm", 0),
