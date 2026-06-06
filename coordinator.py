@@ -88,6 +88,11 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
         self._unsub_calc_time = None
         self._unsub_prune_time = None
         self._unsub_program_listener = None
+        # Holds the most recent "current" observation from the weather service.
+        # Tracked in memory so display always reflects the actual latest reading
+        # rather than the hour-bucket-deduped history entry (which preferentially
+        # keeps the :00:00 model value over the actual current-poll timestamp).
+        self._current_conditions: dict = {}
 
     async def async_setup(self) -> None:
         """Set up the coordinator: load data, schedule tasks."""
@@ -211,6 +216,23 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
         if not result:
             _LOGGER.warning("No weather data received")
             return
+
+        # Cache actual current conditions for sensor display.
+        # The history store deduplicates to one entry per hour, preferring the
+        # :00:00 OWM model entry over the actual current-observation timestamp.
+        # Using result["current"] directly avoids showing the model forecast
+        # value instead of the true observed reading.
+        current_obs = result.get("current")
+        if current_obs:
+            self._current_conditions = {
+                "temperature": current_obs.get("temperature"),
+                "humidity": current_obs.get("humidity"),
+                "wind_speed": current_obs.get("wind_speed"),
+                "dew_point": current_obs.get("dew_point"),
+                "pressure": current_obs.get("pressure"),
+                "uv_index": current_obs.get("uv_index"),
+                "clouds": current_obs.get("clouds"),
+            }
 
         # Store hourly_history entries (past hours from the weather service).
         # These contain accurate per-hour rain data and are more reliable than
@@ -561,13 +583,28 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
         history = self.store.get_weather_history(2)
         forecast = self.store.get_forecast(2)
 
-        # Get latest temperature and humidity from most recent history entry
-        current_temp = None
-        current_humidity = None
-        if history:
+        # Use _current_conditions (set on each successful weather fetch) so the
+        # sensor always shows the true observed reading rather than the
+        # hour-bucket-deduped :00:00 model value from history.
+        # Fall back to the most recent history entry on startup or when the
+        # first fetch has not yet succeeded (e.g. network not ready after restart).
+        current_temp = self._current_conditions.get("temperature")
+        current_humidity = self._current_conditions.get("humidity")
+        current_wind_speed = self._current_conditions.get("wind_speed")
+        current_dew_point = self._current_conditions.get("dew_point")
+        current_pressure = self._current_conditions.get("pressure")
+        current_uv_index = self._current_conditions.get("uv_index")
+        current_clouds = self._current_conditions.get("clouds")
+
+        if current_temp is None and history:
             latest = history[-1]
             current_temp = latest.get("temperature")
             current_humidity = latest.get("humidity")
+            current_wind_speed = latest.get("wind_speed")
+            current_dew_point = latest.get("dew_point")
+            current_pressure = latest.get("pressure")
+            current_uv_index = latest.get("uv_index")
+            current_clouds = latest.get("clouds")
 
         # Calculate hours since last watering
         last_watered = self.store.data.get("last_watered")
@@ -622,6 +659,11 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
             "rain_forecast_2d_mm": round(self.store.get_accumulated_rain_forecast(2), 2),
             "current_temp_c": current_temp,
             "current_humidity": current_humidity,
+            "current_wind_speed_ms": current_wind_speed,
+            "current_dew_point_c": current_dew_point,
+            "current_pressure_hpa": current_pressure,
+            "current_uv_index": current_uv_index,
+            "current_clouds_pct": current_clouds,
             "last_watered": last_watered,
             "hours_since_watering": hours_since_watering,
             "recent_logs": recent_logs,
