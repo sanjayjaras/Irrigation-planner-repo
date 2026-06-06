@@ -21,11 +21,30 @@ from .const import (
     SERVICE_CALCULATE,
     SERVICE_REFRESH_WEATHER,
     SERVICE_RESET_BUCKET,
+    CONF_WEATHER_SOURCE,
+    WEATHER_SOURCE_OWM,
 )
 from .coordinator import IrrigationPlannerCoordinator
 from .log_handler import IrrigationLogBuffer, attach_log_handler, detach_log_handler
 
 _LOGGER = logging.getLogger(__name__)
+
+
+async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
+    """Migrate config entry to the current version."""
+    _LOGGER.info(
+        "Migrating Irrigation Planner config entry from version %s", config_entry.version
+    )
+
+    if config_entry.version == 1:
+        # v1 → v2: weather_source field added; default existing installs to OWM
+        # because they were set up before NWS support and already have an OWM key.
+        new_data = dict(config_entry.data)
+        new_data.setdefault(CONF_WEATHER_SOURCE, WEATHER_SOURCE_OWM)
+        hass.config_entries.async_update_entry(config_entry, data=new_data, version=2)
+        _LOGGER.info("Migrated entry to version 2 (added weather_source=%s)", WEATHER_SOURCE_OWM)
+
+    return True
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:

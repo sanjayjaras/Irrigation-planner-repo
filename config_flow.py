@@ -13,6 +13,7 @@ from homeassistant.data_entry_flow import FlowResult
 
 from .const import (
     DOMAIN,
+    CONF_WEATHER_SOURCE,
     CONF_OWM_API_KEY,
     CONF_LATITUDE,
     CONF_LONGITUDE,
@@ -38,6 +39,8 @@ from .const import (
     SUN_EXPOSURE_OPTIONS,
     SOIL_TYPE_OPTIONS,
     PLANT_TYPE_OPTIONS,
+    WEATHER_SOURCE_OPTIONS,
+    DEFAULT_WEATHER_SOURCE,
     DEFAULT_CALC_TIME,
     DEFAULT_DATA_RETENTION_DAYS,
     DEFAULT_UPDATE_INTERVAL_MINUTES,
@@ -54,6 +57,8 @@ from .const import (
     SUN_FULL,
     SOIL_LOAM,
     PLANT_GRASS,
+    WEATHER_SOURCE_NWS,
+    WEATHER_SOURCE_OWM,
     OWM_BASE_URL,
 )
 
@@ -63,7 +68,7 @@ _LOGGER = logging.getLogger(__name__)
 class IrrigationPlannerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Irrigation Planner."""
 
-    VERSION = 1
+    VERSION = 2
 
     def __init__(self) -> None:
         """Initialize flow."""
@@ -73,29 +78,41 @@ class IrrigationPlannerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Step 1: API key and location."""
+        """Step 1: Weather source, API key (if OWM), and location."""
         errors = {}
 
         if user_input is not None:
-            # Validate OWM API key
-            valid = await self._test_owm_key(
-                user_input[CONF_OWM_API_KEY],
-                user_input.get(CONF_LATITUDE, self.hass.config.latitude),
-                user_input.get(CONF_LONGITUDE, self.hass.config.longitude),
-            )
-            if valid:
+            weather_source = user_input.get(CONF_WEATHER_SOURCE, DEFAULT_WEATHER_SOURCE)
+            lat = user_input.get(CONF_LATITUDE, self.hass.config.latitude)
+            lon = user_input.get(CONF_LONGITUDE, self.hass.config.longitude)
+
+            # Validate OWM API key if OWM is selected
+            if weather_source == WEATHER_SOURCE_OWM:
+                api_key = user_input.get(CONF_OWM_API_KEY, "")
+                if not api_key:
+                    errors["base"] = "api_key_required"
+                else:
+                    valid = await self._test_owm_key(api_key, lat, lon)
+                    if not valid:
+                        errors["base"] = "invalid_api_key"
+
+            if not errors:
                 self._config = {
-                    CONF_OWM_API_KEY: user_input[CONF_OWM_API_KEY],
-                    CONF_LATITUDE: user_input.get(CONF_LATITUDE, self.hass.config.latitude),
-                    CONF_LONGITUDE: user_input.get(CONF_LONGITUDE, self.hass.config.longitude),
+                    CONF_WEATHER_SOURCE: weather_source,
+                    CONF_OWM_API_KEY: user_input.get(CONF_OWM_API_KEY, ""),
+                    CONF_LATITUDE: lat,
+                    CONF_LONGITUDE: lon,
                 }
                 return await self.async_step_settings()
-            errors["base"] = "invalid_api_key"
 
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema({
-                vol.Required(CONF_OWM_API_KEY): str,
+                vol.Required(
+                    CONF_WEATHER_SOURCE,
+                    default=DEFAULT_WEATHER_SOURCE,
+                ): vol.In(WEATHER_SOURCE_OPTIONS),
+                vol.Optional(CONF_OWM_API_KEY): str,
                 vol.Optional(
                     CONF_LATITUDE,
                     default=self.hass.config.latitude,
@@ -397,30 +414,43 @@ class IrrigationPlannerOptionsFlow(config_entries.OptionsFlow):
     async def async_step_api(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """API settings: OWM key, lat, lon."""
+        """API settings: weather source, OWM key (if OWM), lat, lon."""
         errors = {}
 
         if user_input is not None:
-            api_key = user_input.get(CONF_OWM_API_KEY, self._updated_data.get(CONF_OWM_API_KEY))
+            weather_source = user_input.get(CONF_WEATHER_SOURCE, self._updated_data.get(CONF_WEATHER_SOURCE, DEFAULT_WEATHER_SOURCE))
             lat = user_input.get(CONF_LATITUDE, self.hass.config.latitude)
             lon = user_input.get(CONF_LONGITUDE, self.hass.config.longitude)
 
-            valid = await self._test_owm_key(api_key, lat, lon)
-            if valid:
-                self._updated_data[CONF_OWM_API_KEY] = api_key
+            # Validate OWM API key if OWM is selected
+            if weather_source == WEATHER_SOURCE_OWM:
+                api_key = user_input.get(CONF_OWM_API_KEY, self._updated_data.get(CONF_OWM_API_KEY, ""))
+                if not api_key:
+                    errors["base"] = "api_key_required"
+                else:
+                    valid = await self._test_owm_key(api_key, lat, lon)
+                    if not valid:
+                        errors["base"] = "invalid_api_key"
+
+            if not errors:
+                self._updated_data[CONF_WEATHER_SOURCE] = weather_source
+                self._updated_data[CONF_OWM_API_KEY] = user_input.get(CONF_OWM_API_KEY, "")
                 self._updated_data[CONF_LATITUDE] = lat
                 self._updated_data[CONF_LONGITUDE] = lon
                 self.hass.config_entries.async_update_entry(
                     self._config_entry, data=self._updated_data
                 )
                 return self.async_create_entry(title="", data={})
-            errors["base"] = "invalid_api_key"
 
         current = self._updated_data
         return self.async_show_form(
             step_id="api",
             data_schema=vol.Schema({
                 vol.Required(
+                    CONF_WEATHER_SOURCE,
+                    default=current.get(CONF_WEATHER_SOURCE, DEFAULT_WEATHER_SOURCE),
+                ): vol.In(WEATHER_SOURCE_OPTIONS),
+                vol.Optional(
                     CONF_OWM_API_KEY,
                     default=current.get(CONF_OWM_API_KEY, ""),
                 ): str,

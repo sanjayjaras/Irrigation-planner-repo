@@ -162,6 +162,22 @@ class IrrigationCalculator:
         self._lat = latitude
         self._lon = longitude
 
+    @staticmethod
+    def _parse_ts(ts: str) -> datetime:
+        """Parse an ISO timestamp to naive local time.
+
+        Weather providers differ: OWM stores naive-local timestamps while NWS
+        stores timezone-aware UTC.  History may even hold both during a
+        provider switch.  Normalizing everything to naive-local lets entries be
+        compared/subtracted against each other and against datetime.now() /
+        last_watered without mixing offset-naive and offset-aware datetimes.
+        """
+        dt = datetime.fromisoformat(ts)
+        if dt.tzinfo is not None:
+            dt = dt.astimezone()  # convert to system-local tz
+            dt = dt.replace(tzinfo=None)
+        return dt
+
     def calculate_zone(
         self,
         zone_config: dict[str, Any],
@@ -194,11 +210,11 @@ class IrrigationCalculator:
         original_history = weather_history  # Keep reference for fallback
         if last_watered:
             try:
-                last_watered_dt = datetime.fromisoformat(last_watered)
+                last_watered_dt = self._parse_ts(last_watered)
                 # Only include weather entries after last watering
                 filtered_history = [
                     e for e in weather_history
-                    if e.get("timestamp") and datetime.fromisoformat(e["timestamp"]) > last_watered_dt
+                    if e.get("timestamp") and self._parse_ts(e["timestamp"]) > last_watered_dt
                 ]
                 if filtered_history:
                     weather_history = filtered_history
@@ -250,17 +266,19 @@ class IrrigationCalculator:
         hours_spanned = 0.0
         if weather_history:
             # Sort chronologically; drop entries without timestamps.
+            # Sort on the parsed (naive-local) datetime rather than the raw
+            # string so mixed naive/aware timestamps (OWM vs NWS) order correctly.
             sorted_history = sorted(
                 [e for e in weather_history if e.get("timestamp")],
-                key=lambda e: e["timestamp"],
+                key=lambda e: self._parse_ts(e["timestamp"]),
             )
 
             if sorted_history:
                 use_watered_start = (
                     last_watered_dt is not None and weather_history is not original_history
                 )
-                last_ts = datetime.fromisoformat(sorted_history[-1]["timestamp"])
-                span_start = last_watered_dt if use_watered_start else datetime.fromisoformat(sorted_history[0]["timestamp"])
+                last_ts = self._parse_ts(sorted_history[-1]["timestamp"])
+                span_start = last_watered_dt if use_watered_start else self._parse_ts(sorted_history[0]["timestamp"])
                 hours_spanned = max((last_ts - span_start).total_seconds() / 3600, 1.0)
 
                 # Per-entry ET: compute ET for each entry's actual conditions and
@@ -274,7 +292,7 @@ class IrrigationCalculator:
                 avg_clouds = self._avg(sorted_history, WEATHER_CLOUDS, 50.0)
 
                 for i, entry in enumerate(sorted_history):
-                    curr_ts = datetime.fromisoformat(entry["timestamp"])
+                    curr_ts = self._parse_ts(entry["timestamp"])
 
                     if i == 0:
                         interval_hours = (
@@ -282,7 +300,7 @@ class IrrigationCalculator:
                             if use_watered_start else 1.0
                         )
                     else:
-                        prev_ts = datetime.fromisoformat(sorted_history[i - 1]["timestamp"])
+                        prev_ts = self._parse_ts(sorted_history[i - 1]["timestamp"])
                         interval_hours = (curr_ts - prev_ts).total_seconds() / 3600
 
                     interval_hours = max(interval_hours, 0.0)
@@ -313,7 +331,7 @@ class IrrigationCalculator:
             # No new weather data but we know when last watered — use actual elapsed time
             try:
                 hours_spanned = max(
-                    (now - datetime.fromisoformat(last_watered)).total_seconds() / 3600,
+                    (now - self._parse_ts(last_watered)).total_seconds() / 3600,
                     0.0,
                 )
             except (ValueError, TypeError):
@@ -344,7 +362,7 @@ class IrrigationCalculator:
         rain_actual_inches = effective_rain_actual_mm * MM_TO_INCHES
 
         # --- Forecast rain (next 2 days) ---
-        # Step 1: Weight each entry's precipitation by OWM probability of precipitation (pop).
+        # Step 1: Weight each entry's precipitation by probability of precipitation (pop).
         # pop=0.0 means no chance of rain, pop=1.0 means certain rain.
         # Entries without pop (old storage data) default to 1.0 (no discount).
         rain_forecast_mm = sum(
@@ -361,7 +379,7 @@ class IrrigationCalculator:
         rain_forecast_inches = rain_forecast_mm * MM_TO_INCHES
 
         # Step 2: Apply user-configurable confidence on top of pop-weighted rain.
-        # pop captures OWM model uncertainty; forecast_confidence is an additional user discount.
+        # pop captures the forecast model's precipitation uncertainty; forecast_confidence is an additional user discount.
         forecast_confidence_frac = forecast_confidence / 100.0
         effective_forecast_inches = rain_forecast_inches * forecast_confidence_frac
 
@@ -546,7 +564,7 @@ class IrrigationCalculator:
         lines.append("")
         lines.append("Forecast Adjustment (duration only):")
         lines.append(f"  Forecast rain (2 days): +{rain_forecast_raw:.4f} inches ({rain_forecast_raw * INCHES_TO_MM:.2f} mm) raw")
-        lines.append(f"    OWM probability (avg pop {avg_pop * 100:.0f}%): +{rain_forecast_pop_weighted:.4f} inches")
+        lines.append(f"    Probability of precipitation (avg {avg_pop * 100:.0f}%): +{rain_forecast_pop_weighted:.4f} inches")
         lines.append(f"    User confidence ({forecast_confidence:.0f}%): +{effective_forecast:.4f} inches")
         lines.append(f"    Applied to irrigation reduction: -{forecast_duration_offset:.4f} inches")
         lines.append("")

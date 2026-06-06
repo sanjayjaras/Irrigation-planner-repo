@@ -22,6 +22,7 @@ from .const import (
     CONF_DATA_RETENTION_DAYS,
     CONF_LATITUDE,
     CONF_LONGITUDE,
+    CONF_WEATHER_SOURCE,
     CONF_OWM_API_KEY,
     CONF_RAINBIRD_DEBOUNCE_MINUTES,
     CONF_MIN_WATERING_INTERVAL_HOURS,
@@ -40,9 +41,10 @@ from .const import (
     DEFAULT_RAIN_LIGHT_EFFECTIVENESS,
     DEFAULT_FORECAST_CONFIDENCE,
     DEFAULT_UPDATE_INTERVAL_MINUTES,
+    DEFAULT_WEATHER_SOURCE,
 )
 from .store import IrrigationPlannerStore
-from .weather import WeatherCollector
+from .weather import get_weather_service
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -69,11 +71,14 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
 
         lat = self._config.get(CONF_LATITUDE, hass.config.latitude)
         lon = self._config.get(CONF_LONGITUDE, hass.config.longitude)
+        weather_source = self._config.get(CONF_WEATHER_SOURCE, DEFAULT_WEATHER_SOURCE)
+        api_key = self._config.get(CONF_OWM_API_KEY, "")
 
         self.store = IrrigationPlannerStore(hass)
-        self.weather = WeatherCollector(
+        self.weather = get_weather_service(
             hass,
-            self._config[CONF_OWM_API_KEY],
+            weather_source,
+            api_key,
             lat,
             lon,
         )
@@ -199,7 +204,7 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
     # --- Public Actions ---
 
     async def async_refresh_weather(self) -> None:
-        """Fetch current weather and forecast from OWM."""
+        """Fetch current weather and forecast from the configured weather service."""
         _LOGGER.debug("Refreshing weather data")
         result = await self.weather.async_fetch_current_and_forecast()
 
@@ -207,10 +212,10 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
             _LOGGER.warning("No weather data received")
             return
 
-        # Store hourly_history entries (past hours from OWM hourly array).
-        # These contain accurate per-hour rain data going back ~24h and are
-        # far more reliable than the single current.rain.1h snapshot.
-        # Do NOT also store current.rain.1h - it overlaps with the hourly
+        # Store hourly_history entries (past hours from the weather service).
+        # These contain accurate per-hour rain data and are more reliable than
+        # the single-snapshot current observation.
+        # Do NOT also store current precip — it overlaps with the hourly
         # entries and causes double-counting (different timestamps, same rain).
         hourly_history = result.get("hourly_history", [])
         for entry in hourly_history:
@@ -218,10 +223,22 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
 
         # Store current observation with rain zeroed out - we only want it
         # for temperature/humidity/etc display, not for rain accumulation.
-        if result.get("current"):
-            current_no_rain = dict(result["current"])
-            current_no_rain["precip_actual_mm"] = 0.0
-            await self.store.async_add_weather_data(current_no_rain)
+        # Skip when it duplicates an hourly_history entry (same timestamp +
+        # source): some providers (NWS) derive "current" from the latest
+        # observation, so storing the rain-zeroed copy would overwrite that
+        # observation's real precip via the store's (timestamp, source) dedup.
+        current = result.get("current")
+        if current:
+            cur_ts = current.get("timestamp")
+            cur_src = current.get("source")
+            duplicates_history = any(
+                e.get("timestamp") == cur_ts and e.get("source") == cur_src
+                for e in hourly_history
+            )
+            if not duplicates_history:
+                current_no_rain = dict(current)
+                current_no_rain["precip_actual_mm"] = 0.0
+                await self.store.async_add_weather_data(current_no_rain)
 
         # Update forecast (replace with latest)
         # Avoid overlap double-counting by preferring hourly forecast
@@ -243,18 +260,20 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
             len(self.store.get_forecast(2)),
         )
 
-        # Fill gaps for days beyond the 48-hour OWM hourly window using timemachine
+        # Fill gaps for days beyond the ~48-hour observation window
         await self.async_backfill_history()
 
     async def async_backfill_history(self) -> None:
-        """Fetch OWM timemachine data for days beyond the 48-hour hourly window.
+        """Fetch historical weather data for days beyond the ~48-hour observation window.
 
-        OWM's One Call hourly array only goes back ~48 hours.  Any rain that
-        fell between last_watered and that 48-hour boundary shows up as 0 in
-        stored 'current' observation entries.  Timemachine fills those gaps so
-        rain accumulation since last watering is accurate.
+        The weather service's hourly data only goes back ~48 hours.  Any rain
+        that fell between last_watered and that boundary would otherwise be
+        missing.  This method calls async_fetch_history() day-by-day to fill
+        those gaps so rain accumulation since last watering is accurate.
 
         Each date is fetched at most once (tracked in store.backfilled_dates).
+        Providers that do not support history return an empty list from
+        async_fetch_history() and the date is still marked to avoid retrying.
         """
         retention = self._config.get(CONF_DATA_RETENTION_DAYS, DEFAULT_DATA_RETENTION_DAYS)
         last_watered = self.store.data.get("last_watered")
@@ -268,7 +287,7 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
         else:
             start_date = (datetime.now() - timedelta(days=retention)).date()
 
-        # OWM hourly history reliably covers the past 48 h; timemachine fills older days
+        # Hourly observations cover the past ~48 h; backfill fills older days
         owm_cutoff_date = (datetime.now() - timedelta(hours=48)).date()
 
         if start_date >= owm_cutoff_date:
@@ -285,17 +304,18 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
                     )
                     if entries:
                         await self.store.async_add_weather_data_batch(entries)
-                        await self.store.async_mark_date_backfilled(date_str)
                         _LOGGER.info(
-                            "Backfilled %d history entries for %s via OWM timemachine",
+                            "Backfilled %d history entries for %s",
                             len(entries),
                             date_str,
                         )
                     else:
-                        # Mark as backfilled even with no data to avoid repeated calls
-                        await self.store.async_mark_date_backfilled(date_str)
+                        _LOGGER.debug("No history entries returned for %s; skipping", date_str)
+                    # Always mark as done so we don't retry on the next refresh
+                    await self.store.async_mark_date_backfilled(date_str)
                 except Exception:
                     _LOGGER.exception("Failed to backfill weather history for %s", date_str)
+                    # Do NOT mark as backfilled on exception — allow one retry next refresh
             current_date += timedelta(days=1)
 
     async def async_calculate(self, ignore_irrigation_window: bool = False) -> None:

@@ -4,6 +4,7 @@ DOMAIN = "irrigation_planner"
 PLATFORMS = ["sensor", "button", "number", "switch"]
 
 # Configuration keys
+CONF_WEATHER_SOURCE = "weather_source"
 CONF_OWM_API_KEY = "owm_api_key"
 CONF_LATITUDE = "latitude"
 CONF_LONGITUDE = "longitude"
@@ -94,6 +95,7 @@ PLANT_WATER_MULTIPLIER = {
 }
 
 # Defaults
+DEFAULT_WEATHER_SOURCE = "nws"
 DEFAULT_CALC_TIME = "05:00"
 DEFAULT_DATA_RETENTION_DAYS = 7
 DEFAULT_UPDATE_INTERVAL_MINUTES = 60
@@ -107,6 +109,15 @@ DEFAULT_AREA_SQFT = 500
 DEFAULT_SPRINKLER_RATE_IN_PER_HR = 1.0
 DEFAULT_DURATION_MULTIPLIER = 1.0
 DEFAULT_MAX_DURATION_MINUTES = 30
+
+# Weather source options
+WEATHER_SOURCE_NWS = "nws"
+WEATHER_SOURCE_OWM = "owm"
+
+WEATHER_SOURCE_OPTIONS = {
+    WEATHER_SOURCE_NWS: "National Weather Service (NWS) - US Only",
+    WEATHER_SOURCE_OWM: "OpenWeatherMap (OWM) - Global",
+}
 
 # Bucket
 BUCKET_MAX_PERCENT = 100.0
