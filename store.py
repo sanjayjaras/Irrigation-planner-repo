@@ -198,7 +198,7 @@ class IrrigationPlannerStore:
         forecast = self.get_forecast(days)
         return sum(e.get("precip_forecast_mm", 0.0) for e in forecast)
 
-    async def async_prune_old_data(self, retention_days: int = 3) -> None:
+    async def async_prune_old_data(self, retention_days: int = 7) -> None:
         """Delete weather data older than retention_days."""
         cutoff = (datetime.now() - timedelta(days=retention_days)).strftime("%Y-%m-%dT%H:%M:%S")
         cutoff_date = cutoff[:10]  # YYYY-MM-DD for backfilled_dates comparison

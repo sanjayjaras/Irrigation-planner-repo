@@ -462,15 +462,20 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
         """Record that watering happened and set all buckets to 100%."""
         await self.store.async_record_watering(watered_at)
         zones = self._config.get(CONF_ZONES, [])
+        now_iso = datetime.now().isoformat()
         for idx in range(len(zones)):
             zone_id = f"zone_{idx + 1}"
+            # Capture the recommended duration before zeroing it so the
+            # dashboard can show how long each zone ran last cycle.
+            prior_duration = self.store.get_zone_data(zone_id).get("duration_minutes", 0.0)
             await self.store.async_reset_zone_bucket(zone_id, 100.0)
             await self.store.async_update_zone(zone_id, {
                 "bucket_percent": 100.0,
                 "duration_minutes": 0.0,
+                "last_watered_duration_minutes": prior_duration,
                 "cooldown_active": False,
                 "cooldown_remaining_hours": None,
-                "last_calculated": datetime.now().isoformat(),
+                "last_calculated": now_iso,
             })
         await self._async_update_data_from_store()
         _LOGGER.info("Watering recorded at %s, all buckets set to 100%%", watered_at or "now")
@@ -608,7 +613,8 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
             zone_id = f"zone_{idx + 1}"
             zones_data[zone_id] = self.store.get_zone_data(zone_id)
 
-        history = self.store.get_weather_history(2)
+        retention = self._config.get(CONF_DATA_RETENTION_DAYS, DEFAULT_DATA_RETENTION_DAYS)
+        history = self.store.get_weather_history(retention)
         forecast = self.store.get_forecast(2)
 
         # Use _current_conditions (set on each successful weather fetch) so the
@@ -691,8 +697,8 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
             ),
             "history_entries": len(history),
             "forecast_entries": len(forecast),
-            "rain_actual_2d_mm": round(self.store.get_accumulated_rain_actual(2), 2),
-            "rain_forecast_2d_mm": round(self.store.get_accumulated_rain_forecast(2), 2),
+            "rain_actual_mm": round(self.store.get_accumulated_rain_actual(retention), 2),
+            "rain_forecast_mm": round(self.store.get_accumulated_rain_forecast(2), 2),
             "current_temp_c": current_temp,
             "current_humidity": current_humidity,
             "current_wind_speed_ms": current_wind_speed,

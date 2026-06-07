@@ -92,6 +92,7 @@ class ZoneDurationSensor(CoordinatorEntity, SensorEntity):
         zone_data = self.coordinator.data.get("zones", {}).get(self._zone_id, {})
         return {
             "last_calculated": zone_data.get("last_calculated"),
+            "last_watered_duration_minutes": zone_data.get("last_watered_duration_minutes"),
             "bucket_percent": zone_data.get("bucket_percent"),
             "et_inches": zone_data.get("et_inches"),
             "rain_actual_inches": zone_data.get("rain_actual_inches"),
@@ -276,8 +277,8 @@ class WeatherStatusSensor(CoordinatorEntity, SensorEntity):
             "conditions_observed_at": self.coordinator.data.get("conditions_observed_at"),
             "history_entries": self.coordinator.data.get("history_entries", 0),
             "forecast_entries": self.coordinator.data.get("forecast_entries", 0),
-            "rain_actual_2d_mm": self.coordinator.data.get("rain_actual_2d_mm", 0),
-            "rain_forecast_2d_mm": self.coordinator.data.get("rain_forecast_2d_mm", 0),
+            "rain_actual_mm": self.coordinator.data.get("rain_actual_mm", 0),
+            "rain_forecast_mm": self.coordinator.data.get("rain_forecast_mm", 0),
             "last_update": self.coordinator.data.get("last_weather_update"),
             "last_watered": self.coordinator.data.get("last_watered"),
             "hours_since_watering": self.coordinator.data.get("hours_since_watering"),
