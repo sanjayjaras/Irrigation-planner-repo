@@ -459,18 +459,34 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
         _LOGGER.info("Calculation complete for %d zones", len(zones))
 
     async def async_mark_watered(self, watered_at: str | None = None) -> None:
-        """Record that watering happened and set all buckets to 100%."""
+        """Record that watering happened and update buckets.
+
+        If the forecast reduced watering duration, the bucket is only filled
+        proportional to what was actually watered — the remaining deficit is
+        expected from forecasted rain but has not fallen yet.
+        """
         await self.store.async_record_watering(watered_at)
         zones = self._config.get(CONF_ZONES, [])
         now_iso = datetime.now().isoformat()
         for idx in range(len(zones)):
             zone_id = f"zone_{idx + 1}"
-            # Capture the recommended duration before zeroing it so the
-            # dashboard can show how long each zone ran last cycle.
-            prior_duration = self.store.get_zone_data(zone_id).get("duration_minutes", 0.0)
-            await self.store.async_reset_zone_bucket(zone_id, 100.0)
+            zone_data = self.store.get_zone_data(zone_id)
+            prior_duration = zone_data.get("duration_minutes", 0.0)
+            pre_forecast_duration = zone_data.get("pre_forecast_duration_minutes", 0.0)
+            current_bucket = zone_data.get("bucket_percent", 0.0)
+
+            # If forecast shortened the watering, only fill the bucket by the
+            # fraction that was actually watered. The remaining deficit is left
+            # in the bucket, expecting forecasted rain to cover it.
+            if pre_forecast_duration > 0 and prior_duration < pre_forecast_duration:
+                watered_fill = (prior_duration / pre_forecast_duration) * (100.0 - current_bucket)
+                new_bucket = round(min(100.0, current_bucket + watered_fill), 1)
+            else:
+                new_bucket = 100.0
+
+            await self.store.async_reset_zone_bucket(zone_id, new_bucket)
             await self.store.async_update_zone(zone_id, {
-                "bucket_percent": 100.0,
+                "bucket_percent": new_bucket,
                 "duration_minutes": 0.0,
                 "last_watered_duration_minutes": prior_duration,
                 "cooldown_active": False,
@@ -478,7 +494,7 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
                 "last_calculated": now_iso,
             })
         await self._async_update_data_from_store()
-        _LOGGER.info("Watering recorded at %s, all buckets set to 100%%", watered_at or "now")
+        _LOGGER.info("Watering recorded at %s, buckets updated after watering", watered_at or "now")
 
     async def async_reset_all_buckets(self, value: float = 0.0) -> None:
         """Reset all zone buckets."""
