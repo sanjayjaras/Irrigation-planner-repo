@@ -22,6 +22,7 @@ from .const import (
     CONF_UPDATE_INTERVAL_MINUTES,
     CONF_RAINBIRD_DEBOUNCE_MINUTES,
     CONF_MIN_WATERING_INTERVAL_HOURS,
+    CONF_MIN_WATERING_DURATION_MINUTES,
     CONF_AUTO_CALCULATE_ON_WEATHER_UPDATE,
     CONF_ZONES,
     CONF_ZONE_NAME,
@@ -46,6 +47,7 @@ from .const import (
     DEFAULT_UPDATE_INTERVAL_MINUTES,
     DEFAULT_RAINBIRD_DEBOUNCE_MINUTES,
     DEFAULT_MIN_WATERING_INTERVAL_HOURS,
+    DEFAULT_MIN_WATERING_DURATION_MINUTES,
     DEFAULT_AUTO_CALCULATE_ON_WEATHER_UPDATE,
     DEFAULT_RAIN_THRESHOLD_MM,
     DEFAULT_RAIN_LIGHT_EFFECTIVENESS,
@@ -185,6 +187,10 @@ class IrrigationPlannerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_MIN_WATERING_INTERVAL_HOURS,
                     default=DEFAULT_MIN_WATERING_INTERVAL_HOURS,
                 ): vol.All(vol.Coerce(int), vol.Range(min=0, max=168)),
+                vol.Optional(
+                    CONF_MIN_WATERING_DURATION_MINUTES,
+                    default=DEFAULT_MIN_WATERING_DURATION_MINUTES,
+                ): vol.All(vol.Coerce(int), vol.Range(min=0, max=60)),
                 vol.Optional(
                     CONF_AUTO_CALCULATE_ON_WEATHER_UPDATE,
                     default=DEFAULT_AUTO_CALCULATE_ON_WEATHER_UPDATE,
@@ -347,6 +353,9 @@ class IrrigationPlannerOptionsFlow(config_entries.OptionsFlow):
             self._updated_data[CONF_MIN_WATERING_INTERVAL_HOURS] = user_input.get(
                 CONF_MIN_WATERING_INTERVAL_HOURS, DEFAULT_MIN_WATERING_INTERVAL_HOURS
             )
+            self._updated_data[CONF_MIN_WATERING_DURATION_MINUTES] = user_input.get(
+                CONF_MIN_WATERING_DURATION_MINUTES, DEFAULT_MIN_WATERING_DURATION_MINUTES
+            )
             self._updated_data[CONF_AUTO_CALCULATE_ON_WEATHER_UPDATE] = user_input.get(
                 CONF_AUTO_CALCULATE_ON_WEATHER_UPDATE,
                 DEFAULT_AUTO_CALCULATE_ON_WEATHER_UPDATE,
@@ -389,6 +398,10 @@ class IrrigationPlannerOptionsFlow(config_entries.OptionsFlow):
                     CONF_MIN_WATERING_INTERVAL_HOURS,
                     default=current.get(CONF_MIN_WATERING_INTERVAL_HOURS, DEFAULT_MIN_WATERING_INTERVAL_HOURS),
                 ): vol.All(vol.Coerce(int), vol.Range(min=0, max=168)),
+                vol.Optional(
+                    CONF_MIN_WATERING_DURATION_MINUTES,
+                    default=current.get(CONF_MIN_WATERING_DURATION_MINUTES, DEFAULT_MIN_WATERING_DURATION_MINUTES),
+                ): vol.All(vol.Coerce(int), vol.Range(min=0, max=60)),
                 vol.Optional(
                     CONF_AUTO_CALCULATE_ON_WEATHER_UPDATE,
                     default=current.get(

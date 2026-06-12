@@ -145,7 +145,11 @@ class IrrigationPlannerStore:
 
         OWM hourly entries (timestamp ending :00:00) are preferred over
         current-poll entries (e.g. :32:09) for the same hour bucket to
-        prevent double-counting rain when both types exist in storage.
+        determine the representative entry for non-rain fields.
+
+        Precipitation is SUMMED across all entries in an hour bucket so that
+        multiple 20-minute NWS observations within the same hour do not silently
+        discard rain that fell in non-representative sub-hour entries.
 
         Future-timestamped entries (including old UTC-aware NWS entries whose
         string representation sorts after current local-naive timestamps) are
@@ -161,23 +165,34 @@ class IrrigationPlannerStore:
             if cutoff <= e.get("timestamp", "")[:19] <= future_cutoff
         ]
 
-        # Dedup: keep one entry per hour bucket (YYYY-MM-DDTHH)
+        # First pass: pick representative entry per hour (for non-rain fields)
+        # and accumulate total precipitation across ALL sub-hour entries.
         hour_buckets: dict[str, dict] = {}
+        hour_rain: dict[str, float] = {}
         for e in recent:
             ts = e.get("timestamp", "")
             bucket = ts[:13]
+            # Always sum rain from every entry in this hour bucket
+            hour_rain[bucket] = hour_rain.get(bucket, 0.0) + (e.get("precip_actual_mm") or 0.0)
+            # Pick representative entry: prefer :00:00, else first seen
             if bucket not in hour_buckets:
                 hour_buckets[bucket] = e
             else:
-                # Prefer the exact :00:00 OWM hourly entry
                 existing_ts = hour_buckets[bucket].get("timestamp", "")
                 if existing_ts.endswith(":00:00") and not ts.endswith(":00:00"):
-                    pass  # keep existing
+                    pass  # keep existing :00:00 entry for weather fields
                 elif ts.endswith(":00:00") and not existing_ts.endswith(":00:00"):
-                    hour_buckets[bucket] = e  # prefer new :00:00 entry
-                # else keep whichever came first
+                    hour_buckets[bucket] = e  # prefer :00:00 entry for weather fields
 
-        return sorted(hour_buckets.values(), key=lambda e: e.get("timestamp", ""))
+        # Second pass: replace precip_actual_mm with the summed value so no
+        # rain from sub-hour observations is lost.
+        result = []
+        for bucket, entry in hour_buckets.items():
+            merged = dict(entry)
+            merged["precip_actual_mm"] = round(hour_rain.get(bucket, 0.0), 2)
+            result.append(merged)
+
+        return sorted(result, key=lambda e: e.get("timestamp", ""))
 
     def get_forecast(self, days: int = 2) -> list[dict[str, Any]]:
         """Get forecast for the next N days."""

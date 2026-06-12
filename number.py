@@ -13,6 +13,7 @@ from .const import (
     DOMAIN,
     CONF_RAINBIRD_DEBOUNCE_MINUTES,
     CONF_MIN_WATERING_INTERVAL_HOURS,
+    CONF_MIN_WATERING_DURATION_MINUTES,
     CONF_RAIN_THRESHOLD_MM,
     CONF_RAIN_LIGHT_EFFECTIVENESS,
     CONF_FORECAST_CONFIDENCE,
@@ -23,6 +24,7 @@ from .const import (
     CONF_ZONE_SPRINKLER_RATE_IN_PER_HR,
     DEFAULT_RAINBIRD_DEBOUNCE_MINUTES,
     DEFAULT_MIN_WATERING_INTERVAL_HOURS,
+    DEFAULT_MIN_WATERING_DURATION_MINUTES,
     DEFAULT_RAIN_THRESHOLD_MM,
     DEFAULT_RAIN_LIGHT_EFFECTIVENESS,
     DEFAULT_FORECAST_CONFIDENCE,
@@ -43,6 +45,7 @@ async def async_setup_entry(
     entities = [
         DebounceMinutesNumber(config_entry),
         MinWateringIntervalNumber(config_entry),
+        MinWateringDurationNumber(config_entry),
         RainThresholdMMNumber(config_entry),
         RainLightEffectivenessNumber(config_entry),
         ForecastConfidenceNumber(config_entry),
@@ -155,6 +158,38 @@ class MinWateringIntervalNumber(_BaseConfigNumber):
         hours = int(value)
         _LOGGER.info("Setting minimum watering interval to %d hours", hours)
         await self._async_update_entry_value(CONF_MIN_WATERING_INTERVAL_HOURS, hours)
+
+
+class MinWateringDurationNumber(_BaseConfigNumber):
+    """Number entity for minimum watering duration that triggers watering."""
+
+    _attr_name = "Irrigation Planner Min Watering Duration"
+    _attr_icon = "mdi:timer-check-outline"
+    _attr_native_min_value = 0
+    _attr_native_max_value = 60
+    _attr_native_step = 1
+    _attr_native_unit_of_measurement = "min"
+
+    def __init__(self, config_entry: ConfigEntry) -> None:
+        """Initialize minimum duration slider."""
+        super().__init__(config_entry)
+        self._attr_unique_id = f"{config_entry.entry_id}_min_watering_duration_minutes"
+
+    @property
+    def native_value(self) -> float:
+        """Return current minimum watering duration value."""
+        return float(
+            self._config_entry.data.get(
+                CONF_MIN_WATERING_DURATION_MINUTES,
+                DEFAULT_MIN_WATERING_DURATION_MINUTES,
+            )
+        )
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Set minimum watering duration minutes."""
+        minutes = int(value)
+        _LOGGER.info("Setting minimum watering duration to %d minutes", minutes)
+        await self._async_update_entry_value(CONF_MIN_WATERING_DURATION_MINUTES, minutes)
 
 
 class RainThresholdMMNumber(_BaseConfigNumber):

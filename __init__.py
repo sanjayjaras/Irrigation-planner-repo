@@ -69,11 +69,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = IrrigationPlannerCoordinator(hass, entry, log_buffer)
     await coordinator.async_setup()
 
-    unsub_update_listener = entry.add_update_listener(_async_entry_updated)
-
     hass.data[DOMAIN][entry.entry_id] = {
         "coordinator": coordinator,
-        "unsub_update_listener": unsub_update_listener,
         "log_buffer": log_buffer,
     }
 
@@ -94,9 +91,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if unload_ok:
         data = hass.data[DOMAIN].pop(entry.entry_id, None)
         if data:
-            unsub_update_listener = data.get("unsub_update_listener")
-            if unsub_update_listener:
-                unsub_update_listener()
             coordinator = data["coordinator"]
             await coordinator.async_shutdown()
             log_buffer = data.get("log_buffer")
@@ -108,11 +102,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             _async_unregister_services(hass)
 
     return unload_ok
-
-
-async def _async_entry_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Reload entry when config entry data changes."""
-    await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def _async_register_services(

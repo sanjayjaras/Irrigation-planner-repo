@@ -262,6 +262,7 @@ class WeatherStatusSensor(CoordinatorEntity, SensorEntity):
             "data_retention_days": self.coordinator.data.get("data_retention_days"),
             "rainbird_debounce_minutes": self.coordinator.data.get("rainbird_debounce_minutes"),
             "min_watering_interval_hours": self.coordinator.data.get("min_watering_interval_hours"),
+            "min_watering_duration_minutes": self.coordinator.data.get("min_watering_duration_minutes"),
             "auto_calculate_on_weather_update": self.coordinator.data.get("auto_calculate_on_weather_update"),
             "rain_threshold_mm": self.coordinator.data.get("rain_threshold_mm"),
             "rain_light_effectiveness": self.coordinator.data.get("rain_light_effectiveness"),

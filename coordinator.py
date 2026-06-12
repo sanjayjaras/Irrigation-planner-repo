@@ -26,6 +26,7 @@ from .const import (
     CONF_OWM_API_KEY,
     CONF_RAINBIRD_DEBOUNCE_MINUTES,
     CONF_MIN_WATERING_INTERVAL_HOURS,
+    CONF_MIN_WATERING_DURATION_MINUTES,
     CONF_AUTO_CALCULATE_ON_WEATHER_UPDATE,
     CONF_RAIN_THRESHOLD_MM,
     CONF_RAIN_LIGHT_EFFECTIVENESS,
@@ -35,6 +36,7 @@ from .const import (
     DEFAULT_CALC_TIME,
     DEFAULT_DATA_RETENTION_DAYS,
     DEFAULT_MIN_WATERING_INTERVAL_HOURS,
+    DEFAULT_MIN_WATERING_DURATION_MINUTES,
     DEFAULT_RAINBIRD_DEBOUNCE_MINUTES,
     DEFAULT_AUTO_CALCULATE_ON_WEATHER_UPDATE,
     DEFAULT_RAIN_THRESHOLD_MM,
@@ -153,8 +155,10 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
         # Initial weather fetch
         await self.async_refresh_weather()
 
-        # Build initial coordinator data
-        await self._async_update_data_from_store()
+        # Run initial calculation immediately so sensors reflect current values
+        # on startup instead of showing stale pre-restart state all day.
+        # async_calculate calls _async_update_data_from_store internally.
+        await self.async_calculate()
 
     async def async_shutdown(self) -> None:
         """Clean up on shutdown."""
@@ -185,15 +189,17 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
         ):
             _LOGGER.debug("Auto-calculate on weather update disabled")
             return
-        if self._calculation_ran_recently(self._calc_min_gap_seconds):
-            _LOGGER.debug("Skipping weather-triggered calculate; recently calculated")
-            return
+        # Always calculate after each weather update — the update interval itself
+        # already rate-limits frequency. The old debounce guard was RainBird-specific
+        # and was causing weather-triggered calculations to be silently skipped.
         await self.async_calculate()
 
     async def _async_calc_callback(self, now=None) -> None:
         """Scheduled daily calculation."""
-        if self._calculation_ran_recently(self._calc_min_gap_seconds):
-            _LOGGER.debug("Skipping scheduled daily calculation; recently calculated")
+        # Use a short fixed guard (5 min) to prevent double-running if a
+        # weather-triggered calculation fired just before the scheduled time.
+        if self._calculation_ran_recently(300):
+            _LOGGER.debug("Skipping scheduled daily calculation; ran within last 5 minutes")
             return
         _LOGGER.info("Running scheduled daily calculation")
         await self.async_calculate()
@@ -399,6 +405,9 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
         forecast_confidence = self._config.get(
             CONF_FORECAST_CONFIDENCE, DEFAULT_FORECAST_CONFIDENCE
         )
+        min_watering_duration = self._config.get(
+            CONF_MIN_WATERING_DURATION_MINUTES, DEFAULT_MIN_WATERING_DURATION_MINUTES
+        )
 
         # Skip calculation if we are inside the Irrigation Controller's
         # watering window.  The window runs from (start_time - buffer)
@@ -425,6 +434,7 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
                     rain_light_effectiveness=rain_light_effectiveness,
                     forecast_confidence=forecast_confidence,
                     last_watered=last_watered,
+                    min_watering_duration_minutes=min_watering_duration,
                 )
 
                 # Always reset cooldown fields first so stale values
@@ -697,6 +707,10 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
             "min_watering_interval_hours": self._config.get(
                 CONF_MIN_WATERING_INTERVAL_HOURS,
                 DEFAULT_MIN_WATERING_INTERVAL_HOURS,
+            ),
+            "min_watering_duration_minutes": self._config.get(
+                CONF_MIN_WATERING_DURATION_MINUTES,
+                DEFAULT_MIN_WATERING_DURATION_MINUTES,
             ),
             "auto_calculate_on_weather_update": self._config.get(
                 CONF_AUTO_CALCULATE_ON_WEATHER_UPDATE,

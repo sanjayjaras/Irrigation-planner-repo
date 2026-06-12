@@ -188,6 +188,7 @@ class IrrigationCalculator:
         rain_light_effectiveness: float = 50.0,
         forecast_confidence: float = 50.0,
         last_watered: str | None = None,
+        min_watering_duration_minutes: float = 1.0,
     ) -> dict[str, Any]:
         """Calculate irrigation for a single zone.
 
@@ -452,7 +453,7 @@ class IrrigationCalculator:
         # Cap at max duration
         duration_minutes = min(duration_minutes, max_duration)
         # Minimum practical threshold: below 1 minute is not useful
-        if duration_minutes < 1.0:
+        if duration_minutes < max(min_watering_duration_minutes, 0.0):
             duration_minutes = 0.0
 
         # --- Factor breakdown (impact on bucket in %) ---
