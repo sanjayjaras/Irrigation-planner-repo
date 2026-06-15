@@ -20,6 +20,7 @@ from .const import (
     DOMAIN,
     CONF_CALC_TIME,
     CONF_DATA_RETENTION_DAYS,
+    CONF_RAIN_ACCUMULATION_DAYS,
     CONF_LATITUDE,
     CONF_LONGITUDE,
     CONF_WEATHER_SOURCE,
@@ -35,6 +36,7 @@ from .const import (
     CONF_ZONES,
     DEFAULT_CALC_TIME,
     DEFAULT_DATA_RETENTION_DAYS,
+    DEFAULT_RAIN_ACCUMULATION_DAYS,
     DEFAULT_MIN_WATERING_INTERVAL_HOURS,
     DEFAULT_MIN_WATERING_DURATION_MINUTES,
     DEFAULT_RAINBIRD_DEBOUNCE_MINUTES,
@@ -383,11 +385,10 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
             DEFAULT_MIN_WATERING_INTERVAL_HOURS,
         )
 
-        # Use the full retention window so ET and rain since last_watered are
-        # fully captured — a 2-day hardcoded window would miss data when the
-        # inter-watering interval is longer than 2 days.
-        retention = self._config.get(CONF_DATA_RETENTION_DAYS, DEFAULT_DATA_RETENTION_DAYS)
-        weather_history = self.store.get_weather_history(days=retention)
+        # Use the rain accumulation window for calculations (separate from storage retention)
+        # to avoid over-crediting old rain that has already drained or evaporated.
+        rain_accumulation = self._config.get(CONF_RAIN_ACCUMULATION_DAYS, DEFAULT_RAIN_ACCUMULATION_DAYS)
+        weather_history = self.store.get_weather_history(days=rain_accumulation)
         weather_forecast = self.store.get_forecast(days=2)
         last_watered = self.store.data.get("last_watered")
 
@@ -639,8 +640,9 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
             zone_id = f"zone_{idx + 1}"
             zones_data[zone_id] = self.store.get_zone_data(zone_id)
 
-        retention = self._config.get(CONF_DATA_RETENTION_DAYS, DEFAULT_DATA_RETENTION_DAYS)
-        history = self.store.get_weather_history(retention)
+        # Use rain accumulation window for sensor data display
+        rain_accumulation = self._config.get(CONF_RAIN_ACCUMULATION_DAYS, DEFAULT_RAIN_ACCUMULATION_DAYS)
+        history = self.store.get_weather_history(rain_accumulation)
         forecast = self.store.get_forecast(2)
 
         # Use _current_conditions (set on each successful weather fetch) so the
@@ -700,6 +702,10 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
                 CONF_DATA_RETENTION_DAYS,
                 DEFAULT_DATA_RETENTION_DAYS,
             ),
+            "rain_accumulation_days": self._config.get(
+                CONF_RAIN_ACCUMULATION_DAYS,
+                DEFAULT_RAIN_ACCUMULATION_DAYS,
+            ),
             "rainbird_debounce_minutes": self._config.get(
                 CONF_RAINBIRD_DEBOUNCE_MINUTES,
                 DEFAULT_RAINBIRD_DEBOUNCE_MINUTES,
@@ -727,7 +733,7 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
             ),
             "history_entries": len(history),
             "forecast_entries": len(forecast),
-            "rain_actual_mm": round(self.store.get_accumulated_rain_actual(retention), 2),
+            "rain_actual_mm": round(self.store.get_accumulated_rain_actual(rain_accumulation), 2),
             "rain_forecast_mm": round(self.store.get_accumulated_rain_forecast(2), 2),
             "current_temp_c": current_temp,
             "current_humidity": current_humidity,

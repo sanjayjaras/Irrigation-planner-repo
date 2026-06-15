@@ -17,6 +17,7 @@ from .const import (
     CONF_RAIN_THRESHOLD_MM,
     CONF_RAIN_LIGHT_EFFECTIVENESS,
     CONF_FORECAST_CONFIDENCE,
+    CONF_RAIN_ACCUMULATION_DAYS,
     CONF_ZONES,
     CONF_ZONE_NAME,
     CONF_ZONE_MAX_DURATION_MINUTES,
@@ -28,6 +29,7 @@ from .const import (
     DEFAULT_RAIN_THRESHOLD_MM,
     DEFAULT_RAIN_LIGHT_EFFECTIVENESS,
     DEFAULT_FORECAST_CONFIDENCE,
+    DEFAULT_RAIN_ACCUMULATION_DAYS,
     DEFAULT_MAX_DURATION_MINUTES,
     DEFAULT_DURATION_MULTIPLIER,
     DEFAULT_SPRINKLER_RATE_IN_PER_HR,
@@ -49,6 +51,7 @@ async def async_setup_entry(
         RainThresholdMMNumber(config_entry),
         RainLightEffectivenessNumber(config_entry),
         ForecastConfidenceNumber(config_entry),
+        RainAccumulationDaysNumber(config_entry),
     ]
 
     # Add zone-specific config entities
@@ -286,6 +289,38 @@ class ForecastConfidenceNumber(_BaseConfigNumber):
         pct = int(value)
         _LOGGER.info("Setting forecast confidence to %d%%", pct)
         await self._async_update_entry_value(CONF_FORECAST_CONFIDENCE, pct)
+
+
+class RainAccumulationDaysNumber(_BaseConfigNumber):
+    """Number entity for rain accumulation days used in calculations."""
+
+    _attr_name = "Irrigation Planner Rain Accumulation Days"
+    _attr_icon = "mdi:water-check"
+    _attr_native_min_value = 1
+    _attr_native_max_value = 14
+    _attr_native_step = 1
+    _attr_native_unit_of_measurement = "days"
+
+    def __init__(self, config_entry: ConfigEntry) -> None:
+        """Initialize rain accumulation days slider."""
+        super().__init__(config_entry)
+        self._attr_unique_id = f"{config_entry.entry_id}_rain_accumulation_days"
+
+    @property
+    def native_value(self) -> float:
+        """Return current rain accumulation days value."""
+        return float(
+            self._config_entry.data.get(
+                CONF_RAIN_ACCUMULATION_DAYS,
+                DEFAULT_RAIN_ACCUMULATION_DAYS,
+            )
+        )
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Set rain accumulation days."""
+        days = int(value)
+        _LOGGER.info("Setting rain accumulation days to %d", days)
+        await self._async_update_entry_value(CONF_RAIN_ACCUMULATION_DAYS, days)
 
 
 class _BaseZoneConfigNumber(NumberEntity):

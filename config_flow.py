@@ -19,6 +19,7 @@ from .const import (
     CONF_LONGITUDE,
     CONF_CALC_TIME,
     CONF_DATA_RETENTION_DAYS,
+    CONF_RAIN_ACCUMULATION_DAYS,
     CONF_UPDATE_INTERVAL_MINUTES,
     CONF_RAINBIRD_DEBOUNCE_MINUTES,
     CONF_MIN_WATERING_INTERVAL_HOURS,
@@ -44,6 +45,7 @@ from .const import (
     DEFAULT_WEATHER_SOURCE,
     DEFAULT_CALC_TIME,
     DEFAULT_DATA_RETENTION_DAYS,
+    DEFAULT_RAIN_ACCUMULATION_DAYS,
     DEFAULT_UPDATE_INTERVAL_MINUTES,
     DEFAULT_RAINBIRD_DEBOUNCE_MINUTES,
     DEFAULT_MIN_WATERING_INTERVAL_HOURS,
@@ -143,6 +145,9 @@ class IrrigationPlannerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 CONF_DATA_RETENTION_DAYS: user_input.get(
                     CONF_DATA_RETENTION_DAYS, DEFAULT_DATA_RETENTION_DAYS
                 ),
+                CONF_RAIN_ACCUMULATION_DAYS: user_input.get(
+                    CONF_RAIN_ACCUMULATION_DAYS, DEFAULT_RAIN_ACCUMULATION_DAYS
+                ),
                 CONF_RAINBIRD_DEBOUNCE_MINUTES: user_input.get(
                     CONF_RAINBIRD_DEBOUNCE_MINUTES, DEFAULT_RAINBIRD_DEBOUNCE_MINUTES
                 ),
@@ -178,6 +183,10 @@ class IrrigationPlannerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Optional(
                     CONF_DATA_RETENTION_DAYS,
                     default=DEFAULT_DATA_RETENTION_DAYS,
+                ): vol.All(vol.Coerce(int), vol.Range(min=1, max=14)),
+                vol.Optional(
+                    CONF_RAIN_ACCUMULATION_DAYS,
+                    default=DEFAULT_RAIN_ACCUMULATION_DAYS,
                 ): vol.All(vol.Coerce(int), vol.Range(min=1, max=14)),
                 vol.Optional(
                     CONF_RAINBIRD_DEBOUNCE_MINUTES,
@@ -347,6 +356,9 @@ class IrrigationPlannerOptionsFlow(config_entries.OptionsFlow):
             self._updated_data[CONF_DATA_RETENTION_DAYS] = user_input.get(
                 CONF_DATA_RETENTION_DAYS, DEFAULT_DATA_RETENTION_DAYS
             )
+            self._updated_data[CONF_RAIN_ACCUMULATION_DAYS] = user_input.get(
+                CONF_RAIN_ACCUMULATION_DAYS, DEFAULT_RAIN_ACCUMULATION_DAYS
+            )
             self._updated_data[CONF_RAINBIRD_DEBOUNCE_MINUTES] = user_input.get(
                 CONF_RAINBIRD_DEBOUNCE_MINUTES, DEFAULT_RAINBIRD_DEBOUNCE_MINUTES
             )
@@ -389,6 +401,10 @@ class IrrigationPlannerOptionsFlow(config_entries.OptionsFlow):
                 vol.Optional(
                     CONF_DATA_RETENTION_DAYS,
                     default=current.get(CONF_DATA_RETENTION_DAYS, DEFAULT_DATA_RETENTION_DAYS),
+                ): vol.All(vol.Coerce(int), vol.Range(min=1, max=14)),
+                vol.Optional(
+                    CONF_RAIN_ACCUMULATION_DAYS,
+                    default=current.get(CONF_RAIN_ACCUMULATION_DAYS, DEFAULT_RAIN_ACCUMULATION_DAYS),
                 ): vol.All(vol.Coerce(int), vol.Range(min=1, max=14)),
                 vol.Optional(
                     CONF_RAINBIRD_DEBOUNCE_MINUTES,
