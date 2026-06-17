@@ -25,6 +25,8 @@ from .const import (
     CONF_ZONE_AREA_SQFT,
     CONF_ZONE_SPRINKLER_RATE_IN_PER_HR,
     CONF_ZONE_RAINBIRD_ZONE,
+    CONF_ZONE_MAX_DURATION_MINUTES,
+    DEFAULT_MAX_DURATION_MINUTES,
     SUN_EXPOSURE_OPTIONS,
     SOIL_TYPE_OPTIONS,
     PLANT_TYPE_OPTIONS,
@@ -71,18 +73,47 @@ class ZoneDurationSensor(CoordinatorEntity, SensorEntity):
         self._zone_id = zone_id
         self._zone_name = zone_name
         self._zone_config = zone_config
+        self._config_entry = config_entry
         self._attr_unique_id = f"{config_entry.entry_id}_{zone_id}_duration"
         self._attr_name = f"Irrigation {zone_name} Duration"
 
+    def _get_eco_repeats(self) -> int:
+        """Read ECO repeats from IrrigationProgram's number entity.
+
+        Zone 1 -> number.repeats, Zone 2 -> number.repeats_2, etc.
+        Falls back to 1 if the entity is unavailable.
+        """
+        zone_num = int(self._zone_id.split("_")[1])
+        entity_id = "number.repeats" if zone_num == 1 else f"number.repeats_{zone_num}"
+        state = self.coordinator.hass.states.get(entity_id)
+        if state and state.state not in ("unavailable", "unknown"):
+            try:
+                return max(1, int(float(state.state)))
+            except (ValueError, TypeError):
+                pass
+        return 1
+
     @property
     def native_value(self) -> float | None:
-        """Return duration in minutes."""
+        """Return duration per ECO cycle in minutes.
+
+        IrrigationProgram reads this as water_adjustment and multiplies by
+        repeats. We divide by the actual repeat count so total watering time
+        = (duration / repeats) * repeats = duration, capped at max_duration.
+        """
         if self.coordinator.data is None:
             return None
         zone_data = self.coordinator.data.get("zones", {}).get(self._zone_id)
         if zone_data is None:
             return None
-        return zone_data.get("duration_minutes", 0)
+        # Read from live config_entry.data so slider changes take effect
+        zone_num = int(self._zone_id.split("_")[1])
+        zones = self._config_entry.data.get(CONF_ZONES, [])
+        live_zone_cfg = zones[zone_num - 1] if zone_num <= len(zones) else self._zone_config
+        max_duration = live_zone_cfg.get(CONF_ZONE_MAX_DURATION_MINUTES, DEFAULT_MAX_DURATION_MINUTES)
+        total_duration = min(zone_data.get("duration_minutes", 0), max_duration)
+        eco_repeats = self._get_eco_repeats()
+        return round(total_duration / eco_repeats, 1)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -102,6 +133,8 @@ class ZoneDurationSensor(CoordinatorEntity, SensorEntity):
             "net_change_inches": zone_data.get("net_change_inches"),
             "cooldown_active": zone_data.get("cooldown_active", False),
             "cooldown_remaining_hours": zone_data.get("cooldown_remaining_hours"),
+            "eco_repeats": self._get_eco_repeats(),
+            "total_duration_minutes": zone_data.get("duration_minutes", 0),
             "explanation": zone_data.get("explanation"),
         }
 
