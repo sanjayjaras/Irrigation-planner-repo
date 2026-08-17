@@ -22,6 +22,7 @@ from .const import (
     WEATHER_UV_INDEX,
     WEATHER_CLOUDS,
     SUN_EXPOSURE_MULTIPLIER,
+    SUN_EXPOSURE_OPTIONS,
     SUN_FULL,
     SOIL_DRAINAGE_PCT_PER_DAY,
     SOIL_LOAM,
@@ -236,6 +237,15 @@ class IrrigationCalculator:
 
         # Get zone parameters
         sun_exposure = zone_config.get("sun_exposure", SUN_FULL)
+        if sun_exposure not in SUN_EXPOSURE_MULTIPLIER:
+            sun_exposure = next(
+                (
+                    key
+                    for key, label in SUN_EXPOSURE_OPTIONS.items()
+                    if label.casefold() == str(sun_exposure).casefold()
+                ),
+                SUN_FULL,
+            )
         soil_type = zone_config.get("soil_type", SOIL_LOAM)
         plant_type = zone_config.get("plant_type", PLANT_GRASS)
         sprinkler_rate = float(zone_config.get("sprinkler_rate_in_per_hr", 1.0) or 0.0)
@@ -475,6 +485,8 @@ class IrrigationCalculator:
             ),
             "last_calculated": now.isoformat(),
             "hours_of_data": round(hours_spanned, 1),
+            "sun_exposure": sun_exposure,
+            "sun_exposure_multiplier": sun_mult,
 
             # Absolute values
             "et_inches": round(adjusted_et_inches, 4),
@@ -493,6 +505,7 @@ class IrrigationCalculator:
             # Factor breakdown (% impact on bucket)
             "factors": {
                 "evapotranspiration": round(et_impact_pct, 1),
+                "sun_exposure_impact": round(sun_impact_pct, 1),
                 "rain_actual": round(rain_actual_impact_pct, 1),
                 "rain_forecast": round(rain_forecast_impact_pct, 1),
                 "drainage": round(drainage_impact_pct, 1),

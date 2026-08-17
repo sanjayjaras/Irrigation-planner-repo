@@ -159,6 +159,7 @@ class ZoneBucketSensor(CoordinatorEntity, SensorEntity):
         self._zone_id = zone_id
         self._zone_name = zone_name
         self._zone_config = zone_config
+        self._config_entry = config_entry
         self._attr_unique_id = f"{config_entry.entry_id}_{zone_id}_bucket"
         self._attr_name = f"Irrigation {zone_name} Bucket"
 
@@ -175,17 +176,22 @@ class ZoneBucketSensor(CoordinatorEntity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return factor breakdown."""
+        # Read from live config_entry.data so settings changes take effect
+        zone_num = int(self._zone_id.split("_")[1])
+        zones = self._config_entry.data.get(CONF_ZONES, [])
+        live_zone_cfg = zones[zone_num - 1] if zone_num <= len(zones) else self._zone_config
+
         # Config-based attributes always available
-        sun_key = self._zone_config.get(CONF_ZONE_SUN_EXPOSURE, "")
-        soil_key = self._zone_config.get(CONF_ZONE_SOIL_TYPE, "")
-        plant_key = self._zone_config.get(CONF_ZONE_PLANT_TYPE, "")
+        sun_key = live_zone_cfg.get(CONF_ZONE_SUN_EXPOSURE, "")
+        soil_key = live_zone_cfg.get(CONF_ZONE_SOIL_TYPE, "")
+        plant_key = live_zone_cfg.get(CONF_ZONE_PLANT_TYPE, "")
         attrs = {
             "sun_exposure": SUN_EXPOSURE_OPTIONS.get(sun_key, sun_key),
             "soil_type": SOIL_TYPE_OPTIONS.get(soil_key, soil_key),
             "plant_type": PLANT_TYPE_OPTIONS.get(plant_key, plant_key),
-            "area_sqft": self._zone_config.get(CONF_ZONE_AREA_SQFT),
-            "sprinkler_rate_in_per_hr": self._zone_config.get(CONF_ZONE_SPRINKLER_RATE_IN_PER_HR),
-            "rainbird_zone": self._zone_config.get(CONF_ZONE_RAINBIRD_ZONE),
+            "area_sqft": live_zone_cfg.get(CONF_ZONE_AREA_SQFT),
+            "sprinkler_rate_in_per_hr": live_zone_cfg.get(CONF_ZONE_SPRINKLER_RATE_IN_PER_HR),
+            "rainbird_zone": live_zone_cfg.get(CONF_ZONE_RAINBIRD_ZONE),
         }
         # Calculation-based attributes (populated after calc)
         if self.coordinator.data is not None:
@@ -195,6 +201,9 @@ class ZoneBucketSensor(CoordinatorEntity, SensorEntity):
                 "old_bucket_percent": zone_data.get("old_bucket_percent"),
                 "net_change_percent": zone_data.get("net_change_percent"),
                 "factor_et": factors.get("evapotranspiration"),
+                "factor_sun_exposure": factors.get("sun_exposure_impact"),
+                "calculated_sun_exposure": zone_data.get("sun_exposure"),
+                "sun_exposure_multiplier": zone_data.get("sun_exposure_multiplier"),
                 "factor_rain_actual": factors.get("rain_actual"),
                 "factor_rain_forecast": factors.get("rain_forecast"),
                 "factor_drainage": factors.get("drainage"),

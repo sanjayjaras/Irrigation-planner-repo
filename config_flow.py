@@ -384,6 +384,7 @@ class IrrigationPlannerOptionsFlow(config_entries.OptionsFlow):
             self.hass.config_entries.async_update_entry(
                 self._config_entry, data=self._updated_data
             )
+            await self.hass.config_entries.async_reload(self._config_entry.entry_id)
             return self.async_create_entry(title="", data={})
 
         current = self._updated_data
@@ -469,6 +470,7 @@ class IrrigationPlannerOptionsFlow(config_entries.OptionsFlow):
                 self.hass.config_entries.async_update_entry(
                     self._config_entry, data=self._updated_data
                 )
+                await self.hass.config_entries.async_reload(self._config_entry.entry_id)
                 return self.async_create_entry(title="", data={})
 
         current = self._updated_data
@@ -509,6 +511,7 @@ class IrrigationPlannerOptionsFlow(config_entries.OptionsFlow):
                 self.hass.config_entries.async_update_entry(
                     self._config_entry, data=self._updated_data
                 )
+                await self.hass.config_entries.async_reload(self._config_entry.entry_id)
                 return self.async_create_entry(title="", data={})
             elif action and action.startswith("edit_"):
                 self._editing_zone_idx = int(action.split("_")[1])

@@ -18,6 +18,7 @@ from .const import (
     CONF_RAIN_LIGHT_EFFECTIVENESS,
     CONF_FORECAST_CONFIDENCE,
     CONF_RAIN_ACCUMULATION_DAYS,
+    CONF_MAX_WEATHER_STALENESS_HOURS,
     CONF_ZONES,
     CONF_ZONE_NAME,
     CONF_ZONE_MAX_DURATION_MINUTES,
@@ -30,6 +31,7 @@ from .const import (
     DEFAULT_RAIN_LIGHT_EFFECTIVENESS,
     DEFAULT_FORECAST_CONFIDENCE,
     DEFAULT_RAIN_ACCUMULATION_DAYS,
+    DEFAULT_MAX_WEATHER_STALENESS_HOURS,
     DEFAULT_MAX_DURATION_MINUTES,
     DEFAULT_DURATION_MULTIPLIER,
     DEFAULT_SPRINKLER_RATE_IN_PER_HR,
@@ -52,6 +54,7 @@ async def async_setup_entry(
         RainLightEffectivenessNumber(config_entry),
         ForecastConfidenceNumber(config_entry),
         RainAccumulationDaysNumber(config_entry),
+        MaxWeatherStalenessHoursNumber(config_entry),
     ]
 
     # Add zone-specific config entities
@@ -321,6 +324,44 @@ class RainAccumulationDaysNumber(_BaseConfigNumber):
         days = int(value)
         _LOGGER.info("Setting rain accumulation days to %d", days)
         await self._async_update_entry_value(CONF_RAIN_ACCUMULATION_DAYS, days)
+
+
+class MaxWeatherStalenessHoursNumber(_BaseConfigNumber):
+    """Number entity for max weather data age before watering is withheld.
+
+    If no successful weather update has occurred within this many hours,
+    the coordinator withholds watering (zeroes duration) and fires a
+    persistent notification, instead of silently reusing outdated data
+    (e.g. during a DNS/network outage to the weather provider).
+    """
+
+    _attr_name = "Irrigation Planner Max Weather Staleness"
+    _attr_icon = "mdi:clock-alert-outline"
+    _attr_native_min_value = 1
+    _attr_native_max_value = 48
+    _attr_native_step = 1
+    _attr_native_unit_of_measurement = "h"
+
+    def __init__(self, config_entry: ConfigEntry) -> None:
+        """Initialize max weather staleness slider."""
+        super().__init__(config_entry)
+        self._attr_unique_id = f"{config_entry.entry_id}_max_weather_staleness_hours"
+
+    @property
+    def native_value(self) -> float:
+        """Return current max weather staleness value."""
+        return float(
+            self._config_entry.data.get(
+                CONF_MAX_WEATHER_STALENESS_HOURS,
+                DEFAULT_MAX_WEATHER_STALENESS_HOURS,
+            )
+        )
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Set max weather staleness hours."""
+        hours = int(value)
+        _LOGGER.info("Setting max weather staleness to %d hours", hours)
+        await self._async_update_entry_value(CONF_MAX_WEATHER_STALENESS_HOURS, hours)
 
 
 class _BaseZoneConfigNumber(NumberEntity):

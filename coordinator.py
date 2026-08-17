@@ -33,6 +33,7 @@ from .const import (
     CONF_RAIN_LIGHT_EFFECTIVENESS,
     CONF_FORECAST_CONFIDENCE,
     CONF_UPDATE_INTERVAL_MINUTES,
+    CONF_MAX_WEATHER_STALENESS_HOURS,
     CONF_ZONES,
     DEFAULT_CALC_TIME,
     DEFAULT_DATA_RETENTION_DAYS,
@@ -45,6 +46,7 @@ from .const import (
     DEFAULT_RAIN_LIGHT_EFFECTIVENESS,
     DEFAULT_FORECAST_CONFIDENCE,
     DEFAULT_UPDATE_INTERVAL_MINUTES,
+    DEFAULT_MAX_WEATHER_STALENESS_HOURS,
     DEFAULT_WEATHER_SOURCE,
 )
 from .store import IrrigationPlannerStore
@@ -97,10 +99,17 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
         # rather than the hour-bucket-deduped history entry (which preferentially
         # keeps the :00:00 model value over the actual current-poll timestamp).
         self._current_conditions: dict = {}
+        # Tracks whether a "stale weather" persistent notification has already
+        # been sent for the current stale streak, to avoid re-notifying every
+        # calculation cycle. Cleared on the next successful weather update.
+        self._stale_notification_sent = False
 
     async def async_setup(self) -> None:
         """Set up the coordinator: load data, schedule tasks."""
         await self.store.async_load()
+        # Publish persisted zone data before the first weather request. This
+        # keeps coordinator entities available during temporary API failures.
+        await self._async_update_data_from_store()
 
         debounce_minutes = self._config.get(
             CONF_RAINBIRD_DEBOUNCE_MINUTES,
@@ -224,6 +233,10 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
         if not result:
             _LOGGER.warning("No weather data received")
             return
+
+        # Successful fetch clears the stale-notification latch so a future
+        # outage will notify again instead of staying silent forever.
+        self._stale_notification_sent = False
 
         # Cache actual current conditions for sensor display.
         # The history store deduplicates to one entry per hour, preferring the
@@ -376,6 +389,49 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
                     # Do NOT mark as backfilled on exception — allow one retry next refresh
             current_date += timedelta(days=1)
 
+    def _get_weather_staleness_hours(self) -> float | None:
+        """Return hours since the last successful weather update, or None if never updated."""
+        last_update = self.store.data.get("last_weather_update")
+        if not last_update:
+            return None
+        try:
+            last_dt = datetime.fromisoformat(last_update)
+        except (ValueError, TypeError):
+            return None
+        return (datetime.now() - last_dt).total_seconds() / 3600
+
+    async def _async_notify_stale_weather(self, staleness_hours: float | None) -> None:
+        """Fire a persistent notification once when weather data becomes stale.
+
+        Avoids re-notifying on every calculation cycle by tracking whether we
+        already warned for the current stale streak (cleared on next
+        successful weather update in async_refresh_weather).
+        """
+        if self._stale_notification_sent:
+            return
+        self._stale_notification_sent = True
+        age_desc = "unknown" if staleness_hours is None else f"{staleness_hours:.1f}h"
+        _LOGGER.warning(
+            "Weather data is stale (age: %s) - watering calculations are paused "
+            "until fresh weather data is received",
+            age_desc,
+        )
+        await self.hass.services.async_call(
+            "persistent_notification",
+            "create",
+            {
+                "title": "Irrigation Planner: Weather data stale",
+                "message": (
+                    f"No fresh weather data for {age_desc}. Irrigation "
+                    "durations have been set to 0 to avoid watering based on "
+                    "outdated conditions. Check network/DNS connectivity to "
+                    "the weather provider."
+                ),
+                "notification_id": f"{DOMAIN}_weather_stale",
+            },
+            blocking=False,
+        )
+
     async def async_calculate(self, ignore_irrigation_window: bool = False) -> None:
         """Run irrigation calculation for all zones."""
         _LOGGER.info("Running irrigation calculation for all zones")
@@ -383,6 +439,14 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
         min_interval_hours = self._config.get(
             CONF_MIN_WATERING_INTERVAL_HOURS,
             DEFAULT_MIN_WATERING_INTERVAL_HOURS,
+        )
+        max_staleness_hours = self._config.get(
+            CONF_MAX_WEATHER_STALENESS_HOURS,
+            DEFAULT_MAX_WEATHER_STALENESS_HOURS,
+        )
+        staleness_hours = self._get_weather_staleness_hours()
+        weather_is_stale = (
+            staleness_hours is None or staleness_hours > max_staleness_hours
         )
 
         # Use the rain accumulation window for calculations (separate from storage retention)
@@ -394,6 +458,24 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
 
         if not weather_history:
             _LOGGER.warning("No weather history available, skipping calculation")
+            # If this is happening because weather data is stale (not just a
+            # cold-start startup race), proactively zero out zone durations so
+            # a prolonged outage (e.g. DNS failure) doesn't leave a stale
+            # nonzero duration in place indefinitely for the irrigation
+            # program to keep watering with.
+            if weather_is_stale and self.store.data.get("last_weather_update"):
+                await self._async_notify_stale_weather(staleness_hours)
+                age_desc = "unknown" if staleness_hours is None else f"{staleness_hours:.1f}h"
+                for idx in range(len(zones)):
+                    zone_id = f"zone_{idx + 1}"
+                    await self.store.async_update_zone(zone_id, {
+                        "duration_minutes": 0.0,
+                        "explanation": f"Watering withheld: weather data is stale (age: {age_desc})",
+                    }, save=False)
+                await self.store.async_save()
+            # Keep sensors available with persisted zone data even when weather
+            # is temporarily unavailable during startup.
+            await self._async_update_data_from_store()
             return
 
         # Get rain effectiveness and forecast confidence settings
@@ -421,6 +503,9 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
             )
             return
 
+        if weather_is_stale:
+            await self._async_notify_stale_weather(staleness_hours)
+
         for idx, zone_config in enumerate(zones):
             zone_id = f"zone_{idx + 1}"
             zone_data = self.store.get_zone_data(zone_id)
@@ -442,6 +527,20 @@ class IrrigationPlannerCoordinator(DataUpdateCoordinator):
                 # don't persist when cooldown has expired.
                 result["cooldown_active"] = False
                 result["cooldown_remaining_hours"] = None
+
+                # Safety fallback: if weather data hasn't refreshed recently
+                # (e.g. DNS/network outage), do not water based on outdated
+                # conditions. Zero the duration but keep the bucket/ET/rain
+                # breakdown untouched so sensors still show why watering was
+                # withheld once fresh data returns.
+                if weather_is_stale:
+                    result["duration_minutes"] = 0.0
+                    explanation = result.get("explanation", "")
+                    age_desc = "unknown" if staleness_hours is None else f"{staleness_hours:.1f}h"
+                    result["explanation"] = (
+                        explanation
+                        + f"\n\nWatering withheld: weather data is stale (age: {age_desc})"
+                    ).strip()
 
                 # Safety cooldown: do not water again too soon after last watering
                 if min_interval_hours > 0 and last_watered:

@@ -1,7 +1,7 @@
 """Constants for Irrigation Planner."""
 
 DOMAIN = "irrigation_planner"
-PLATFORMS = ["sensor", "button", "number", "switch"]
+PLATFORMS = ["sensor", "button", "number", "switch", "select", "binary_sensor"]
 
 # Configuration keys
 CONF_WEATHER_SOURCE = "weather_source"
@@ -19,6 +19,7 @@ CONF_AUTO_CALCULATE_ON_WEATHER_UPDATE = "auto_calculate_on_weather_update"
 CONF_RAIN_THRESHOLD_MM = "rain_threshold_mm"
 CONF_RAIN_LIGHT_EFFECTIVENESS = "rain_light_effectiveness"
 CONF_FORECAST_CONFIDENCE = "forecast_confidence"
+CONF_MAX_WEATHER_STALENESS_HOURS = "max_weather_staleness_hours"
 
 # Zone configuration
 CONF_ZONES = "zones"
@@ -109,6 +110,7 @@ DEFAULT_AUTO_CALCULATE_ON_WEATHER_UPDATE = True
 DEFAULT_RAIN_THRESHOLD_MM = 5.0
 DEFAULT_RAIN_LIGHT_EFFECTIVENESS = 50
 DEFAULT_FORECAST_CONFIDENCE = 50
+DEFAULT_MAX_WEATHER_STALENESS_HOURS = 6
 DEFAULT_AREA_SQFT = 500
 DEFAULT_SPRINKLER_RATE_IN_PER_HR = 1.0
 DEFAULT_DURATION_MULTIPLIER = 1.0
